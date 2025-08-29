@@ -472,23 +472,13 @@ describe('NearClaimProcessor', () => {
     it('should handle processing errors gracefully', async () => {
       const projectId = 'error-test';
 
-      // Try to process without uploading entitlements first
+      // Try to process without uploading entitlements first - should return 404
       const response = await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
         .set('X-API-Key', 'test-api-key')
-        .expect(200);
+        .expect(404);
 
-      // Wait a bit for error to occur
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Check status - should show error
-      const statusResponse = await request(processor.getApp())
-        .get(`/root?project_id=${projectId}`)
-        .set('X-API-Key', 'test-api-key')
-        .expect(200);
-
-      expect(statusResponse.body.status).toBe('error');
-      expect(statusResponse.body).toHaveProperty('message');
+      expect(response.body.error).toContain('Project not found');
     });
 
     it('should handle malformed JSON requests', async () => {
