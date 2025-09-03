@@ -1,6 +1,7 @@
 import keccak from 'keccak';
 import BN from 'bn.js';
 import { PerformanceMonitor } from './performance-monitor';
+import { CHUNK_SIZES, DATASET_THRESHOLDS, FORMATS, REGEX_PATTERNS } from './constants';
 
 export interface MerkleValue {
   value: [string, string]; // [address, amount]
@@ -30,15 +31,19 @@ export class NearMerkleTree {
     monitor.setStage('initialization');
     
     // Adaptive chunk size based on dataset size for better performance
-    const chunkSize = values.length > 100000 ? 10000 : values.length > 10000 ? 5000 : 1000;
+    const chunkSize = values.length > DATASET_THRESHOLDS.LARGE 
+      ? CHUNK_SIZES.LARGE 
+      : values.length > DATASET_THRESHOLDS.SMALL 
+      ? CHUNK_SIZES.MEDIUM 
+      : CHUNK_SIZES.SMALL;
     const leaves: Array<[number, Buffer, [string, string]]> = [];
     
-    if (values.length > 10000) {
+    if (values.length > DATASET_THRESHOLDS.SMALL) {
       console.log(`🚀 Processing ${values.length} entries with chunk size ${chunkSize}...`);
     }
 
     // Pre-allocate array for better performance with large datasets
-    if (values.length > 10000) {
+    if (values.length > DATASET_THRESHOLDS.SMALL) {
       leaves.length = values.length;
     }
     
@@ -61,7 +66,7 @@ export class NearMerkleTree {
         const firstHash = keccak('keccak256').update(encoded).digest();
         const leafHash = keccak('keccak256').update(firstHash).digest();
         
-        if (values.length > 10000) {
+        if (values.length > DATASET_THRESHOLDS.SMALL) {
           leaves[originalIndex] = [originalIndex, leafHash, value];
         } else {
           leaves.push([originalIndex, leafHash, value]);
@@ -69,7 +74,7 @@ export class NearMerkleTree {
       }
 
       // Record metrics periodically and show progress for large datasets
-      if (values.length > 50000 && i > 0 && i % (chunkSize * 10) === 0) {
+      if (values.length > DATASET_THRESHOLDS.MEDIUM && i > 0 && i % (chunkSize * 10) === 0) {
         const progress = Math.round((i / values.length) * 100);
         console.log(`Processed ${i}/${values.length} entries (${progress}%)`);
         monitor.recordMetrics(i);
@@ -79,7 +84,7 @@ export class NearMerkleTree {
 
     // Sort leaves by hash value
     monitor.setStage('sorting-leaves');
-    if (values.length > 50000) {
+    if (values.length > DATASET_THRESHOLDS.MEDIUM) {
       console.log('Sorting leaves...');
     }
     const sortedLeaves = leaves.sort((a, b) => a[1].compare(b[1]));
@@ -91,24 +96,24 @@ export class NearMerkleTree {
     const tree: string[] = new Array(treeSize);
     const origToTreePos: { [key: number]: number } = {};
 
-    if (values.length > 50000) {
+    if (values.length > DATASET_THRESHOLDS.MEDIUM) {
       console.log('Building tree structure...');
     }
 
     // Place leaves at bottom level with better chunking for large datasets
-    const leafChunkSize = values.length > 100000 ? 50000 : chunkSize;
+    const leafChunkSize = values.length > DATASET_THRESHOLDS.LARGE ? CHUNK_SIZES.EXTRA_LARGE : chunkSize;
     for (let i = 0; i < sortedLeaves.length; i++) {
       const [origIdx, leafHash] = sortedLeaves[i];
       const leafPos = treeSize - 1 - i;
       tree[leafPos] = '0x' + leafHash.toString('hex');
       origToTreePos[origIdx] = leafPos;
 
-      if (values.length > 50000 && i > 0 && i % leafChunkSize === 0) {
+      if (values.length > DATASET_THRESHOLDS.MEDIUM && i > 0 && i % leafChunkSize === 0) {
         const progress = Math.round((i / sortedLeaves.length) * 100);
         console.log(`Placed ${i}/${sortedLeaves.length} leaves (${progress}%)`);
         monitor.recordMetrics(i);
         await new Promise(resolve => setImmediate(resolve));
-      } else if (values.length <= 50000 && i % chunkSize === 0 && i > 0) {
+      } else if (values.length <= DATASET_THRESHOLDS.MEDIUM && i % chunkSize === 0 && i > 0) {
         await new Promise(resolve => setImmediate(resolve));
       }
     }
@@ -156,7 +161,7 @@ export class NearMerkleTree {
     monitor.recordMetrics(values.length);
     
     // Log performance summary for large datasets
-    if (values.length > 10000) {
+    if (values.length > DATASET_THRESHOLDS.SMALL) {
       monitor.logSummary();
     }
 
@@ -168,20 +173,20 @@ export class NearMerkleTree {
     
     // Ensure address is properly formatted for NEAR
     let formattedAddress = address.toLowerCase();
-    if (!formattedAddress.endsWith('.near') && !formattedAddress.match(/^[a-f0-9]{64}$/)) {
+    if (!formattedAddress.endsWith('.near') && !formattedAddress.match(REGEX_PATTERNS.HEX_64_CHAR)) {
       // If it's not a NEAR account ID and not a 64-char hex, assume it's an implicit account
       if (formattedAddress.startsWith('0x')) {
         formattedAddress = formattedAddress.substring(2);
       }
       // Pad to 64 chars if needed for implicit account
-      formattedAddress = formattedAddress.padStart(64, '0');
+      formattedAddress = formattedAddress.padStart(FORMATS.NEAR_ACCOUNT_HEX_LENGTH, '0');
     }
 
     // Convert amount to string representation
     let formattedAmount: string;
     
     // Validate format - must be digits with optional decimal point
-    if (!/^\d+(\.\d*)?$/.test(amount)) {
+    if (!REGEX_PATTERNS.AMOUNT_VALIDATION.test(amount)) {
       throw new Error(`Invalid amount format: ${amount}`);
     }
     
@@ -260,7 +265,7 @@ export class NearMerkleTree {
 
   dump(): MerkleTreeDump {
     return {
-      format: 'near-v1',
+      format: FORMATS.MERKLE_TREE_VERSION,
       tree: this.tree,
       values: this.values,
       leafEncoding: this.leafEncoding
@@ -268,7 +273,7 @@ export class NearMerkleTree {
   }
 
   static load(data: MerkleTreeDump): NearMerkleTree {
-    if (data.format !== 'near-v1') {
+    if (data.format !== FORMATS.MERKLE_TREE_VERSION) {
       throw new Error(`Unknown format '${data.format}'`);
     }
     if (!data.leafEncoding) {

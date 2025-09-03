@@ -1,6 +1,7 @@
 import { NearMerkleTree } from './merkle-tree';
 import { IStorage } from './storage';
 import { DatabaseService } from './database';
+import { checkForDuplicateAddresses, calculateTotalClaimValue } from './utils';
 
 export interface EntitlementEntry {
   address: string;
@@ -73,22 +74,12 @@ export class TreeProcessor {
 
       // Parse entitlements (assuming CSV data is stored as array)
       const entitlements: EntitlementEntry[] = entitlementsData;
-      const addresses = entitlements.map(e => e.address.toLowerCase());
 
-      this.numEntitlements = addresses.length;
-      this.totalClaimValue = entitlements
-        .reduce((sum, e) => {
-          // Handle large numbers as strings to avoid scientific notation
-          const cleanAmount = /^\d+$/.test(e.amount) ? e.amount : e.amount.split('.')[0];
-          return sum + BigInt(cleanAmount);
-        }, 0n)
-        .toString();
+      this.numEntitlements = entitlements.length;
+      this.totalClaimValue = calculateTotalClaimValue(entitlements);
 
       // Check for duplicate addresses
-      const uniqueAddresses = new Set(addresses);
-      if (uniqueAddresses.size !== addresses.length) {
-        throw new Error('Duplicate addresses found. There are more entitlements than unique addresses.');
-      }
+      checkForDuplicateAddresses(entitlements);
 
       this.buildStartTime = new Date();
       this.status = 'building';
@@ -104,7 +95,7 @@ export class TreeProcessor {
       // Build Merkle tree
       const values: Array<[string, string]> = entitlements.map(e => [
         e.address, 
-        /^\d+$/.test(e.amount) ? e.amount : e.amount.split('.')[0]
+        e.amount.includes('.') ? e.amount.split('.')[0] : e.amount
       ]);
       this.merkleTree = await NearMerkleTree.of(values, ['address', 'uint256']);
       

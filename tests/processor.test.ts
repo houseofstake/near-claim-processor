@@ -217,7 +217,7 @@ describe('NearClaimProcessor', () => {
         .set('X-API-Key', 'test-api-key')
         .set('Content-Type', 'text/csv')
         .send('alice.near,\nbob.near,1000')
-        .expect(500);
+        .expect(400);
     });
 
     it('should reject empty entitlements array', async () => {
@@ -239,7 +239,7 @@ describe('NearClaimProcessor', () => {
         .set('X-API-Key', 'test-api-key')
         .set('Content-Type', 'text/csv')
         .send('invalid')
-        .expect(500);
+        .expect(400);
     });
 
     it('should list projects after upload', async () => {
@@ -487,7 +487,7 @@ describe('NearClaimProcessor', () => {
         .set('X-API-Key', 'test-api-key')
         .set('Content-Type', 'text/csv')
         .send('invalid json')
-        .expect(500);
+        .expect(400);
     });
 
     it('should handle missing request body', async () => {
@@ -507,7 +507,7 @@ describe('NearClaimProcessor', () => {
         .set('X-API-Key', 'test-api-key')
         .set('Content-Type', 'text/csv')
         .send(',1000\nalice.near,2000')
-        .expect(500);
+        .expect(400);
     });
 
     it('should validate entitlement amounts', async () => {
@@ -518,7 +518,7 @@ describe('NearClaimProcessor', () => {
         .set('X-API-Key', 'test-api-key')
         .set('Content-Type', 'text/csv')
         .send('alice.near,\nbob.near,2000')
-        .expect(500);
+        .expect(400);
     });
 
     it('should accept valid NEAR addresses', async () => {

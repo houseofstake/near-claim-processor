@@ -1,7 +1,11 @@
 import express from 'express';
 import { IStorage } from './storage';
 import { DatabaseService } from './database';
-import { TreeProcessor, EntitlementEntry } from './tree-processor';
+import { TreeProcessor } from './tree-processor';
+import { HTTP_STATUS, TIMEOUTS } from './constants';
+import { ValidationUtils } from './validation';
+import { ValidationError, ErrorUtils } from './errors';
+import { parseCSVToEntitlements, checkForDuplicateAddresses } from './utils';
 
 export interface RoutesConfig {
   storage: IStorage;
@@ -17,50 +21,31 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       const apiKey = process.env.API_KEY;
       
       if (!apiKey) {
-        return res.status(500).json({ error: 'API key not configured' });
+        return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: 'API key not configured' });
       }
 
-      const providedKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      const providedKey = (req.headers['x-api-key'] as string) || 
+        (req.headers['authorization'] as string)?.replace('Bearer ', '');
       
-      if (!providedKey || providedKey !== apiKey) {
-        return res.status(401).json({ error: 'Invalid or missing API key' });
+      try {
+        if (providedKey) {
+          ValidationUtils.validateApiKey(providedKey);
+        }
+        
+        if (!providedKey || providedKey !== apiKey) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: 'Invalid or missing API key' });
+        }
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: error.message });
+        }
+        throw error;
       }
 
       next();
     };
   };
 
-  const parseCSV = (csvData: string): EntitlementEntry[] => {
-    const lines = csvData.trim().split('\n');
-    const entitlements: EntitlementEntry[] = [];
-    
-    // Skip header if it exists (check if first line contains 'address' and 'amount')
-    const startIndex = lines[0] && lines[0].toLowerCase().includes('address') ? 1 : 0;
-    
-    for (let i = startIndex; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      
-      const [address, amount] = line.split(',').map(field => field.trim());
-      
-      if (!address || !amount) {
-        throw new Error(`Invalid CSV format at line ${i + 1}: ${line}`);
-      }
-      
-      // Validate amount is a valid number
-      if (!/^\d+(\.\d+)?$/.test(amount)) {
-        throw new Error(`Invalid amount format at line ${i + 1}: ${amount}`);
-      }
-      const numericAmount = parseFloat(amount);
-      if (numericAmount < 0) {
-        throw new Error(`Negative amount at line ${i + 1}: ${amount}`);
-      }
-      
-      entitlements.push({ address, amount });
-    }
-    
-    return entitlements;
-  };
 
   // Health check
   app.get('/health', (_, res) => {
@@ -69,13 +54,14 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
 
   // Process root endpoint
   app.get('/root', requireApiKey(), async (req, res) => {
-    const projectId = req.query.project_id as string;
-    
-    if (!projectId) {
-      return res.status(400).json({ error: 'project_id is required' });
-    }
-
     try {
+      const projectId = req.query.project_id as string;
+      
+      if (!projectId) {
+        throw new ValidationError('project_id is required');
+      }
+      
+      ValidationUtils.validateProjectId(projectId);
       // Check if processor is currently active
       const activeProcessor = activeProcessors.get(projectId);
       if (activeProcessor) {
@@ -85,7 +71,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       // Check if project exists in database
       const existingProject = await database.getProject(projectId);
       if (!existingProject) {
-        return res.status(404).json({ 
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
           error: 'Project not found. Please upload entitlements first using POST /upload/:projectId'
         });
       }
@@ -93,7 +79,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       // Check if entitlements file exists
       const entitlementsData = await storage.retrieveData(`user-entitlement-file/${projectId}.csv`);
       if (!entitlementsData) {
-        return res.status(404).json({ 
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
           error: 'Entitlements file not found. Please upload entitlements first using POST /upload/:projectId'
         });
       }
@@ -108,7 +94,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
           // Clean up after completion or error
           setTimeout(() => {
             activeProcessors.delete(projectId);
-          }, 300000); // Keep for 5 minutes after completion
+          }, TIMEOUTS.PROCESSOR_CLEANUP_MS);
         });
 
         return res.json(processor.getResult());
@@ -122,9 +108,10 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
         startTime: existingProject.startTime.toISOString()
       });
     } catch (error) {
-      console.error(`Error processing project ${projectId}:`, error);
-      res.status(500).json({ 
-        error: 'Internal server error', 
+      ErrorUtils.logError(error as Error, 'root endpoint');
+      const statusCode = error instanceof ValidationError ? HTTP_STATUS.BAD_REQUEST : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        error: error instanceof Error ? error.message : 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
     }
@@ -138,14 +125,78 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       const proofData = await storage.retrieveJSON(`v1/proof/${projectId}/${address.toLowerCase()}.json`);
       
       if (!proofData) {
-        return res.status(404).json({ error: 'Proof not found for address' });
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'Proof not found for address' });
       }
 
       res.json(proofData);
     } catch (error) {
       console.error(`Error retrieving proof for ${address} in project ${projectId}:`, error);
-      res.status(500).json({ 
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
         error: 'Internal server error',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get all proofs for an address across projects
+  app.get('/proofs/:address', requireApiKey(), async (req, res) => {
+    const { address } = req.params;
+    
+    try {
+      ValidationUtils.validateNearAddress(address);
+      
+      const proofs = await database.getProofsByAddress(address);
+      
+      if (!proofs || proofs.length === 0) {
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
+          error: 'No proofs found for address across any projects',
+          address: address.toLowerCase()
+        });
+      }
+
+      const enrichedProofs = await Promise.all(
+        proofs.map(async (proof) => {
+          try {
+            console.log('proof', proof);
+            const proofData = await storage.retrieveJSON(proof.gcsPath);
+            console.log('proofData', proofData);
+            return {
+              projectId: proof.projectId,
+              address: proof.address,
+              amount: proof.amount,
+              treeIndex: proof.treeIndex,
+              claimed: proof.claimed,
+              claimedAt: proof.claimedAt,
+              claimedTxHash: proof.claimedTxHash,
+              createdAt: proof.createdAt,
+              proofData: proofData || null,
+            };
+          } catch {
+            return {
+              projectId: proof.projectId,
+              address: proof.address,
+              amount: proof.amount,
+              treeIndex: proof.treeIndex,
+              claimed: proof.claimed,
+              claimedAt: proof.claimedAt,
+              claimedTxHash: proof.claimedTxHash,
+              createdAt: proof.createdAt,
+              proofData: null,
+            };
+          }
+        })
+      );
+
+      res.json({
+        address: address.toLowerCase(),
+        totalProofs: proofs.length,
+        proofs: enrichedProofs,
+      });
+    } catch (error) {
+      ErrorUtils.logError(error as Error, `get proofs for address ${address}`);
+      const statusCode = error instanceof ValidationError ? HTTP_STATUS.BAD_REQUEST : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        error: error instanceof Error ? error.message : 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
     }
@@ -159,7 +210,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       // Check if project already exists
       const existingProject = await database.getProject(projectId);
       if (existingProject) {
-        return res.status(409).json({ 
+        return res.status(HTTP_STATUS.CONFLICT).json({ 
           error: 'Project already exists',
           currentStatus: existingProject.status
         });
@@ -189,29 +240,27 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
 
   // Upload entitlements file (CSV only)
   app.post('/upload/:projectId', requireApiKey(), async (req, res) => {
-    const { projectId } = req.params;
-    
     try {
+      const { projectId } = req.params;
+      
+      ValidationUtils.validateProjectId(projectId);
+      
       const csvData = req.body as string;
       if (!csvData || typeof csvData !== 'string' || csvData.trim().length === 0) {
-        return res.status(400).json({ error: 'Invalid CSV data' });
+        throw new ValidationError('Invalid CSV data');
       }
       
-      const entitlements = parseCSV(csvData);
+      const entitlements = parseCSVToEntitlements(csvData);
 
-      // Validate entitlements format
-      for (const entry of entitlements) {
-        if (!entry.address || !entry.amount) {
-          throw new Error('Each entitlement must have address and amount');
-        }
-      }
+      // Check for duplicate addresses
+      checkForDuplicateAddresses(entitlements);
 
       // Check if project already exists
       const existingProject = await database.getProject(projectId);
       if (existingProject) {
         // Allow upload if project is in 'created', 'error' state, or if re-uploading to same project
         if (!['created', 'error'].includes(existingProject.status)) {
-          return res.status(409).json({ 
+          return res.status(HTTP_STATUS.CONFLICT).json({ 
             error: 'Project already exists and is not in error or created state',
             currentStatus: existingProject.status
           });
@@ -234,7 +283,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
           // Clean up after completion or error
           setTimeout(() => {
             activeProcessors.delete(projectId);
-          }, 300000); // Keep for 5 minutes after completion
+          }, TIMEOUTS.PROCESSOR_CLEANUP_MS);
         });
       }
 
@@ -244,9 +293,10 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
         processing: processor.getResult()
       });
     } catch (error) {
-      console.error(`Error uploading entitlements for project ${projectId}:`, error);
-      res.status(500).json({ 
-        error: 'Failed to upload entitlements',
+      ErrorUtils.logError(error as Error, `upload entitlements for project ${req.params.projectId}`);
+      const statusCode = error instanceof ValidationError ? HTTP_STATUS.BAD_REQUEST : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        error: error instanceof Error ? error.message : 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
     }
@@ -260,13 +310,13 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       const treeData = await storage.retrieveJSON(`project-tree/${projectId}.json`);
       
       if (!treeData) {
-        return res.status(404).json({ error: 'Tree not found for project' });
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'Tree not found for project' });
       }
 
       res.json(treeData);
     } catch (error) {
       console.error(`Error retrieving tree for project ${projectId}:`, error);
-      res.status(500).json({ 
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
         error: 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
@@ -293,7 +343,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       const statusData = await database.getProjectStatus(projectId);
       
       if (!statusData) {
-        return res.status(404).json({ error: 'No status found for project' });
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'No status found for project' });
       }
 
       // Get tree data if available
@@ -305,7 +355,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       });
     } catch (error) {
       console.error(`Error retrieving status for project ${projectId}:`, error);
-      res.status(500).json({ 
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
         error: 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
@@ -319,7 +369,7 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       res.json({ projects });
     } catch (error) {
       console.error('Error listing projects:', error);
-      res.status(500).json({ 
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
         error: 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
@@ -334,13 +384,13 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
       const stats = await database.getProjectStats(projectId);
       
       if (!stats) {
-        return res.status(404).json({ error: 'Project not found' });
+        return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'Project not found' });
       }
 
       res.json(stats);
     } catch (error) {
       console.error(`Error retrieving stats for project ${projectId}:`, error);
-      res.status(500).json({ 
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
         error: 'Internal server error',
         message: error instanceof Error ? error.message : String(error)
       });
@@ -349,21 +399,28 @@ export function setupRoutes(app: express.Application, config: RoutesConfig): voi
 
   // Mark proof as claimed
   app.post('/claim/:projectId/:address', requireApiKey(), async (req, res) => {
-    const { projectId, address } = req.params;
-    const { txHash } = req.body;
-    
-    if (!txHash) {
-      return res.status(400).json({ error: 'txHash is required' });
-    }
-
     try {
+      const { projectId, address } = req.params;
+      const { txHash } = req.body;
+      
+      ValidationUtils.validateProjectId(projectId);
+      ValidationUtils.validateNearAddress(address);
+      
+      if (!txHash) {
+        throw new ValidationError('txHash is required');
+      }
+      
+      ValidationUtils.validateTxHash(txHash);
+
       const proof = await database.markProofClaimed(projectId, address, txHash);
       res.json(proof);
     } catch (error) {
-      console.error(`Error marking proof claimed for ${address} in project ${projectId}:`, error);
-      res.status(500).json({ 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : String(error)
+      ErrorUtils.logError(error as Error, `mark proof claimed for ${req.params.address} in project ${req.params.projectId}`);
+      const errorResponse = ErrorUtils.toErrorResponse(error as Error);
+      const statusCode = errorResponse.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        error: error instanceof ValidationError ? error.message : errorResponse.error,
+        message: errorResponse.message
       });
     }
   });

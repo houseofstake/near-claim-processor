@@ -1,6 +1,7 @@
 import { Storage } from '@google-cloud/storage';
 import * as fs from 'fs';
 import * as path from 'path';
+import { StorageError, ConfigurationError } from './errors';
 
 export interface GCSConfig {
   projectId?: string;
@@ -30,8 +31,7 @@ export class GCSStorage {
         const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
         storageConfig.credentials = credentials;
       } catch (error) {
-        console.error('Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
-        throw new Error('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format');
+        throw new ConfigurationError('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format', error as Error);
       }
     }
 
@@ -39,10 +39,17 @@ export class GCSStorage {
   }
 
   async initialize(): Promise<void> {
-    // Verify bucket exists
-    const [exists] = await this.storage.bucket(this.bucketName).exists();
-    if (!exists) {
-      throw new Error(`GCS bucket ${this.bucketName} does not exist`);
+    try {
+      // Verify bucket exists
+      const [exists] = await this.storage.bucket(this.bucketName).exists();
+      if (!exists) {
+        throw new ConfigurationError(`GCS bucket ${this.bucketName} does not exist`);
+      }
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
+      throw new StorageError('bucket verification', error as Error);
     }
   }
 
@@ -61,7 +68,7 @@ export class GCSStorage {
         },
       });
     } catch (error) {
-      throw new Error(`Failed to store data: ${error}`);
+      throw new StorageError(`store data with key '${key}'`, error as Error);
     }
   }
 
@@ -103,7 +110,7 @@ export class GCSStorage {
       const file = this.storage.bucket(this.bucketName).file(key);
       await file.delete();
     } catch (error) {
-      throw new Error(`Failed to delete data: ${error}`);
+      throw new StorageError(`delete data with key '${key}'`, error as Error);
     }
   }
 
@@ -127,7 +134,7 @@ export class GCSStorage {
       
       await Promise.all(uploadPromises);
     } catch (error) {
-      throw new Error(`Failed to store batch data: ${error}`);
+      throw new StorageError(`batch store ${items.length} items`, error as Error);
     }
   }
 

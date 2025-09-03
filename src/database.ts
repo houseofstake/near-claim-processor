@@ -1,5 +1,7 @@
 import { PrismaClient } from './generated/prisma';
 import { ProcessorStatus } from './tree-processor';
+import { DATABASE } from './constants';
+import { DatabaseError, ErrorUtils } from './errors';
 
 export class DatabaseService {
   private prisma: PrismaClient;
@@ -9,11 +11,20 @@ export class DatabaseService {
   }
 
   async initialize(): Promise<void> {
-    await this.prisma.$connect();
+    try {
+      await this.prisma.$connect();
+    } catch (error) {
+      throw new DatabaseError('connection initialization', error as Error);
+    }
   }
 
   async disconnect(): Promise<void> {
-    await this.prisma.$disconnect();
+    try {
+      await this.prisma.$disconnect();
+    } catch (error) {
+      // Log disconnect errors but don't throw - we're likely shutting down
+      ErrorUtils.logError(new DatabaseError('disconnection', error as Error));
+    }
   }
 
   async createProject(data: {
@@ -136,7 +147,7 @@ export class DatabaseService {
     gcsPath: string;
   }>) {
     // Process in smaller batches to avoid memory issues
-    const BATCH_SIZE = 1000;
+    const BATCH_SIZE = DATABASE.BATCH_SIZE;
     const results = [];
 
     for (let i = 0; i < proofs.length; i += BATCH_SIZE) {
@@ -301,5 +312,18 @@ export class DatabaseService {
         totalAmount: unclaimedTotal.toString(),
       },
     };
+  }
+
+  async getProofsByAddress(address: string) {
+    return await this.prisma.proof.findMany({
+      where: {
+        address: address.toLowerCase(),
+        claimed: false,
+      },
+      orderBy: [
+        { createdAt: 'desc' },
+        { projectId: 'asc' },
+      ],
+    });
   }
 }

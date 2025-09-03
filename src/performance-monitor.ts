@@ -1,3 +1,5 @@
+import { MEMORY_LIMITS } from './constants';
+
 export interface PerformanceMetrics {
   memoryUsage: NodeJS.MemoryUsage;
   timestamp: number;
@@ -34,12 +36,12 @@ export class PerformanceMonitor {
 
     // Log memory warnings for large datasets
     const memoryMB = Math.round(memory.heapUsed / 1024 / 1024);
-    if (memoryMB > 1000) {
+    if (memoryMB > MEMORY_LIMITS.WARNING_MB) {
       console.log(`⚠️ High memory usage: ${memoryMB}MB heap used in stage "${this.stage}"`);
     }
 
     // Force garbage collection if available (useful for testing)
-    if (global.gc && memoryMB > 2000) {
+    if (global.gc && memoryMB > MEMORY_LIMITS.GC_TRIGGER_MB) {
       console.log('🗑️ Running garbage collection...');
       global.gc();
       const afterGC = process.memoryUsage();

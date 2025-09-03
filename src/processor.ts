@@ -3,6 +3,7 @@ import { IStorage, GCSConfig } from './storage';
 import { DatabaseService } from './database';
 import { TreeProcessor } from './tree-processor';
 import { setupRoutes } from './routes';
+import { HTTP_LIMITS } from './constants';
 
 export interface ProcessorConfig {
   storage: IStorage;
@@ -23,9 +24,9 @@ export class NearClaimProcessor {
   }
 
   private setupMiddleware(): void {
-    this.app.use(express.json({ limit: '500mb' }));
-    this.app.use(express.urlencoded({ extended: true, limit: '500mb' }));
-    this.app.use(express.text({ type: 'text/csv', limit: '500mb' }));
+    this.app.use(express.json({ limit: HTTP_LIMITS.JSON_LIMIT }));
+    this.app.use(express.urlencoded({ extended: true, limit: HTTP_LIMITS.URL_ENCODED_LIMIT }));
+    this.app.use(express.text({ type: 'text/csv', limit: HTTP_LIMITS.TEXT_LIMIT }));
   }
 
   private setupRoutes(): void {

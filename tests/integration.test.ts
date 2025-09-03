@@ -40,7 +40,7 @@ describe('Integration Tests', () => {
       await storage.storeJSON(`project-tree/${projectId}.json`, tree.dump());
       
       // Step 3: Generate and store all proofs
-      const proofTasks = [];
+      const proofTasks: { key: string; data: any }[] = [];
       for (const valueEntry of tree.values) {
         const address = valueEntry.value[0];
         const proof = tree.getProof(valueEntry.treeIndex);
