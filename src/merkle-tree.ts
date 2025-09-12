@@ -62,9 +62,7 @@ export class NearMerkleTree {
         // Encode the value for NEAR (using keccak256)
         const encoded = this.encodeValue(convertedValue);
         
-        // Double hash for security (NEAR pattern)
-        const firstHash = keccak('keccak256').update(encoded).digest();
-        const leafHash = keccak('keccak256').update(firstHash).digest();
+        const leafHash = keccak('keccak256').update(encoded).digest();
         
         if (values.length > DATASET_THRESHOLDS.SMALL) {
           leaves[originalIndex] = [originalIndex, leafHash, value];
@@ -173,7 +171,11 @@ export class NearMerkleTree {
     
     // Ensure address is properly formatted for NEAR
     let formattedAddress = address.toLowerCase();
-    if (!formattedAddress.endsWith('.near') && !formattedAddress.match(REGEX_PATTERNS.HEX_64_CHAR)) {
+    
+    // Check if it's a NEAR account (ends with .near, .testnet, etc.) or already a 64-char hex
+    const isNearAccount = formattedAddress.includes('.') || formattedAddress.match(REGEX_PATTERNS.HEX_64_CHAR);
+    
+    if (!isNearAccount) {
       // If it's not a NEAR account ID and not a 64-char hex, assume it's an implicit account
       if (formattedAddress.startsWith('0x')) {
         formattedAddress = formattedAddress.substring(2);
@@ -200,13 +202,19 @@ export class NearMerkleTree {
   private static encodeValue(value: [string, string]): Buffer {
     const [address, amount] = value;
     
-    // Simple concatenation encoding for NEAR compatibility
-    const addressBytes = Buffer.from(address, 'utf8');
-    const amountBytes = Buffer.from(amount, 'utf8');
+    const accountBytes = Buffer.from(address, 'utf8');
+    const accountLength = Buffer.alloc(4);
+    accountLength.writeUInt32LE(accountBytes.length, 0);
     
-    // Use simple concatenation with separator for consistency
-    const separator = Buffer.from('|', 'utf8');
-    return Buffer.concat([addressBytes, separator, amountBytes]);
+    const amountBN = new BN(amount, 10);
+    const amountBytes = Buffer.alloc(16);
+    
+    const amountArray = amountBN.toArray('le', 16);
+    for (let i = 0; i < 16; i++) {
+      amountBytes[i] = amountArray[i] || 0;
+    }
+    
+    return Buffer.concat([accountLength, accountBytes, amountBytes]);
   }
 
   getProof(index: number): string[] {
@@ -239,9 +247,7 @@ export class NearMerkleTree {
     const convertedValue = NearMerkleTree.convertValue(leafValue);
     const encoded = NearMerkleTree.encodeValue(convertedValue);
     
-    // Double hash the leaf
-    const firstHash = keccak('keccak256').update(encoded).digest();
-    let current = keccak('keccak256').update(firstHash).digest();
+    let current = keccak('keccak256').update(encoded).digest();
 
     // Process proof elements
     for (const sibling of proof) {
