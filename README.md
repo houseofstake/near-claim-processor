@@ -45,6 +45,9 @@ cp .env.example .env
 ### Environment Configuration
 
 ```env
+# Authentication
+API_KEY=your-secure-api-key
+
 # For local development (recommended for testing)
 USE_LOCAL_STORAGE=true
 DATA_PATH=./data
@@ -77,21 +80,32 @@ npm start
 
 ## API Endpoints
 
-### 1. Upload Entitlements
+All endpoints require API key authentication via `X-API-Key` header or `Authorization: Bearer <key>`.
+
+### 1. Health Check
+
+```bash
+GET /health
+```
+
+### 2. Upload Entitlements (CSV)
 
 ```bash
 POST /upload/:projectId
-Content-Type: application/json
+Content-Type: text/plain
 
-{
-  "entitlements": [
-    {"address": "alice.near", "amount": "1000000000000000000000"},
-    {"address": "bob.near", "amount": "2000000000000000000000"}
-  ]
-}
+address,amount
+alice.near,1000000000000000000000
+bob.near,2000000000000000000000
 ```
 
-### 2. Process Claims
+### 3. Create Project
+
+```bash
+POST /create/:projectId
+```
+
+### 4. Process Claims / Get Status
 
 ```bash
 GET /root?project_id=my-project
@@ -110,7 +124,7 @@ Response:
 }
 ```
 
-### 3. Get Individual Proof
+### 5. Get Individual Proof
 
 ```bash
 GET /proof/:projectId/:address
@@ -126,16 +140,45 @@ Response:
 }
 ```
 
-### 4. Get Tree Data
+### 6. Get All Proofs for Address
+
+```bash
+GET /proofs/:address
+```
+
+### 7. Get Tree Data
 
 ```bash
 GET /tree/:projectId
 ```
 
-### 5. List Projects
+### 8. Get Project Status
+
+```bash
+GET /status/:projectId
+```
+
+### 9. List Projects
 
 ```bash
 GET /projects
+```
+
+### 10. Get Project Statistics
+
+```bash
+GET /stats/:projectId
+```
+
+### 11. Mark Proof as Claimed
+
+```bash
+POST /claim/:projectId/:address
+Content-Type: application/json
+
+{
+  "txHash": "0x123..."
+}
 ```
 
 ## Verification
