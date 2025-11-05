@@ -1,7 +1,7 @@
-import { PrismaClient } from './generated/prisma';
-import { ProcessorStatus } from './tree-processor';
-import { DATABASE } from './constants';
-import { DatabaseError, ErrorUtils } from './errors';
+import { PrismaClient } from "./generated/prisma";
+import { ProcessorStatus } from "./types";
+import { DATABASE } from "./constants";
+import { DatabaseError, ErrorUtils } from "./errors";
 
 export class DatabaseService {
   private prisma: PrismaClient;
@@ -14,7 +14,7 @@ export class DatabaseService {
     try {
       await this.prisma.$connect();
     } catch (error) {
-      throw new DatabaseError('connection initialization', error as Error);
+      throw new DatabaseError("connection initialization", error as Error);
     }
   }
 
@@ -23,7 +23,7 @@ export class DatabaseService {
       await this.prisma.$disconnect();
     } catch (error) {
       // Log disconnect errors but don't throw - we're likely shutting down
-      ErrorUtils.logError(new DatabaseError('disconnection', error as Error));
+      ErrorUtils.logError(new DatabaseError("disconnection", error as Error));
     }
   }
 
@@ -61,19 +61,22 @@ export class DatabaseService {
     });
   }
 
-  async updateProject(projectId: string, data: Partial<{
-    status: string;
-    endTime: Date;
-    numEntitlements: number;
-    totalClaimValue: string;
-    rootHash: string;
-    buildElapsed: number;
-    totalElapsed: number;
-    buildStartTime: Date;
-    endGenerateTime: Date;
-    generated: number;
-    errorMessage: string;
-  }>) {
+  async updateProject(
+    projectId: string,
+    data: Partial<{
+      status: string;
+      endTime: Date;
+      numEntitlements: number;
+      totalClaimValue: string;
+      rootHash: string;
+      buildElapsed: number;
+      totalElapsed: number;
+      buildStartTime: Date;
+      endGenerateTime: Date;
+      generated: number;
+      errorMessage: string;
+    }>
+  ) {
     return await this.prisma.project.update({
       where: { id: projectId },
       data,
@@ -105,17 +108,29 @@ export class DatabaseService {
     if (!project) return null;
 
     return {
-      status: project.status as ProcessorStatus['status'],
+      status: project.status as ProcessorStatus["status"],
       projectId: project.id,
-      startTime: project.startTime.toISOString().replace('T', ':').replace(/\.\d{3}Z$/, ''),
-      endTime: project.endTime?.toISOString().replace('T', ':').replace(/\.\d{3}Z$/, ''),
+      startTime: project.startTime
+        .toISOString()
+        .replace("T", ":")
+        .replace(/\.\d{3}Z$/, ""),
+      endTime: project.endTime
+        ?.toISOString()
+        .replace("T", ":")
+        .replace(/\.\d{3}Z$/, ""),
       numEntitlements: project.numEntitlements || undefined,
       totalClaimValue: project.totalClaimValue || undefined,
       root: project.rootHash || undefined,
       buildElapsed: project.buildElapsed || undefined,
       totalElapsed: project.totalElapsed || undefined,
-      buildStartTime: project.buildStartTime?.toISOString().replace('T', ':').replace(/\.\d{3}Z$/, ''),
-      endGenerateTime: project.endGenerateTime?.toISOString().replace('T', ':').replace(/\.\d{3}Z$/, ''),
+      buildStartTime: project.buildStartTime
+        ?.toISOString()
+        .replace("T", ":")
+        .replace(/\.\d{3}Z$/, ""),
+      endGenerateTime: project.endGenerateTime
+        ?.toISOString()
+        .replace("T", ":")
+        .replace(/\.\d{3}Z$/, ""),
       generated: project.generated || undefined,
       message: project.errorMessage || undefined,
     };
@@ -139,20 +154,22 @@ export class DatabaseService {
     });
   }
 
-  async createProofsBatch(proofs: Array<{
-    projectId: string;
-    address: string;
-    amount: string;
-    treeIndex: number;
-    gcsPath: string;
-  }>) {
+  async createProofsBatch(
+    proofs: Array<{
+      projectId: string;
+      address: string;
+      amount: string;
+      treeIndex: number;
+      gcsPath: string;
+    }>
+  ) {
     // Process in smaller batches to avoid memory issues
     const BATCH_SIZE = DATABASE.BATCH_SIZE;
     const results = [];
 
     for (let i = 0; i < proofs.length; i += BATCH_SIZE) {
       const batch = proofs.slice(i, i + BATCH_SIZE);
-      const batchData = batch.map(proof => ({
+      const batchData = batch.map((proof) => ({
         projectId: proof.projectId,
         address: proof.address.toLowerCase(),
         amount: proof.amount,
@@ -186,7 +203,7 @@ export class DatabaseService {
     });
 
     await this.updateProjectTotalClaimed(projectId);
-    
+
     return proof;
   }
 
@@ -241,7 +258,7 @@ export class DatabaseService {
         updatedAt: true,
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -255,7 +272,7 @@ export class DatabaseService {
 
     // Get counts by claimed status
     const proofStats = await this.prisma.proof.groupBy({
-      by: ['claimed'],
+      by: ["claimed"],
       where: { projectId },
       _count: {
         _all: true,
@@ -292,8 +309,10 @@ export class DatabaseService {
       return sum + BigInt(proof.amount);
     }, 0n);
 
-    const claimedCount = proofStats.find(stat => stat.claimed === true)?._count._all || 0;
-    const unclaimedCount = proofStats.find(stat => stat.claimed === false)?._count._all || 0;
+    const claimedCount =
+      proofStats.find((stat) => stat.claimed === true)?._count._all || 0;
+    const unclaimedCount =
+      proofStats.find((stat) => stat.claimed === false)?._count._all || 0;
 
     return {
       project: {
@@ -320,10 +339,7 @@ export class DatabaseService {
         address: address.toLowerCase(),
         claimed: false,
       },
-      orderBy: [
-        { createdAt: 'desc' },
-        { projectId: 'asc' },
-      ],
+      orderBy: [{ createdAt: "desc" }, { projectId: "asc" }],
     });
   }
 }
