@@ -152,7 +152,10 @@ describe('NearMerkleTree', () => {
       for (const valueEntry of tree.values) {
         const proof = tree.getProof(valueEntry.treeIndex);
         expect(Array.isArray(proof)).toBe(true);
-        expect(proof.every(p => p.match(/^0x[a-fA-F0-9]{64}$/))).toBe(true);
+        // Each proof element should be a byte array (array of numbers)
+        expect(proof.every(p => Array.isArray(p) && p.every(b => typeof b === 'number' && b >= 0 && b <= 255))).toBe(true);
+        // Each proof element should be 32 bytes (SHA256 hash)
+        expect(proof.every(p => p.length === 32)).toBe(true);
       }
     });
 
@@ -200,13 +203,14 @@ describe('NearMerkleTree', () => {
     it('should reject tampered proofs', () => {
       const validEntry = tree.values[0];
       const proof = tree.getProof(validEntry.treeIndex);
-      
-      // Tamper with the proof
+
+      // Tamper with the proof by modifying the first byte array
       const tamperedProof = [...proof];
       if (tamperedProof.length > 0) {
-        tamperedProof[0] = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+        // Create a fake byte array (32 bytes)
+        tamperedProof[0] = new Array(32).fill(0).map((_, i) => i);
       }
-      
+
       const isValid = tree.verify(tamperedProof, validEntry.value);
       expect(isValid).toBe(false);
     });

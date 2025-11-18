@@ -10,14 +10,47 @@ import {
 import { MerkleTreeData, MerkleValue, MerkleTreeDump } from "./types";
 
 export class NearMerkleTree {
-  private tree: string[];
+  private tree: number[][];
   public values: MerkleValue[];
   private leafEncoding: string[];
 
-  constructor(tree: string[], values: MerkleValue[], leafEncoding: string[]) {
+  constructor(tree: number[][], values: MerkleValue[], leafEncoding: string[]) {
     this.tree = tree;
     this.values = values;
     this.leafEncoding = leafEncoding;
+  }
+
+  private static bufferToByteArray(buffer: Buffer): number[] {
+    return Array.from(buffer);
+  }
+
+  private static byteArrayToBuffer(bytes: number[]): Buffer {
+    return Buffer.from(bytes);
+  }
+
+  private static stringToByteArray(str: string): number[] {
+    const hex = str.startsWith("0x") ? str.slice(2) : str;
+    if (/^[0-9a-fA-F]+$/.test(hex) && hex.length % 2 === 0) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = Number.parseInt(hex.substring(i, i + 2), 16);
+      }
+      return Array.from(bytes);
+    }
+    const base64 = btoa(str);
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return Array.from(bytes);
+  }
+
+  private static formatProofAsByteArrays(proof: number[][]): string {
+    const formatted = proof.map(
+      (bytes) => `    [\n${bytes.map((n) => `      ${n}`).join(",\n")}\n    ]`,
+    );
+    return `[\n${formatted.join(",\n")}\n  ]`;
   }
 
   static async of(
@@ -95,7 +128,7 @@ export class NearMerkleTree {
     // Build tree structure
     monitor.setStage("building-tree");
     const treeSize = 2 * leaves.length - 1;
-    const tree: string[] = new Array(treeSize);
+    const tree: number[][] = new Array(treeSize);
     const origToTreePos: { [key: number]: number } = {};
 
     if (values.length > DATASET_THRESHOLDS.MEDIUM) {
@@ -110,7 +143,7 @@ export class NearMerkleTree {
     for (let i = 0; i < sortedLeaves.length; i++) {
       const [origIdx, leafHash] = sortedLeaves[i];
       const leafPos = treeSize - 1 - i;
-      tree[leafPos] = "0x" + leafHash.toString("hex");
+      tree[leafPos] = this.bufferToByteArray(leafHash);
       origToTreePos[origIdx] = leafPos;
 
       if (
@@ -155,10 +188,10 @@ export class NearMerkleTree {
       const leftIdx = 2 * i + 1;
       const rightIdx = 2 * i + 2;
 
-      const leftHash = Buffer.from(tree[leftIdx].substring(2), "hex");
+      const leftHash = this.byteArrayToBuffer(tree[leftIdx]);
       const rightHash =
         rightIdx < tree.length
-          ? Buffer.from(tree[rightIdx].substring(2), "hex")
+          ? this.byteArrayToBuffer(tree[rightIdx])
           : leftHash;
 
       // Sort pair before hashing (NEAR requirement)
@@ -171,7 +204,7 @@ export class NearMerkleTree {
         .update(Buffer.concat(sortedPair))
         .digest();
 
-      tree[i] = "0x" + nodeHash.toString("hex");
+      tree[i] = this.bufferToByteArray(nodeHash);
     }
 
     monitor.setStage("complete");
@@ -271,7 +304,7 @@ export class NearMerkleTree {
     ]);
   }
 
-  getProof(index: number): string[] {
+  getProof(index: number): number[][] {
     if (index < 0 || index >= this.tree.length) {
       throw new Error("Index out of range");
     }
@@ -279,8 +312,8 @@ export class NearMerkleTree {
     return this.getProofUnsafe(index);
   }
 
-  private getProofUnsafe(index: number): string[] {
-    const proof: string[] = [];
+  private getProofUnsafe(index: number): number[][] {
+    const proof: number[][] = [];
     let currentIndex = index;
 
     while (currentIndex > 0) {
@@ -297,7 +330,7 @@ export class NearMerkleTree {
     return proof;
   }
 
-  verify(proof: string[], leafValue: MerkleTreeData): boolean {
+  verify(proof: number[][], leafValue: MerkleTreeData): boolean {
     const convertedValue = NearMerkleTree.convertValue(leafValue);
     const encoded = NearMerkleTree.encodeBorshValue(convertedValue);
 
@@ -305,7 +338,7 @@ export class NearMerkleTree {
 
     // Process proof elements
     for (const sibling of proof) {
-      const siblingHash = Buffer.from(sibling.substring(2), "hex");
+      const siblingHash = NearMerkleTree.byteArrayToBuffer(sibling);
 
       // Sort pair before hashing
       const sortedPair =
@@ -316,12 +349,14 @@ export class NearMerkleTree {
       current = keccak("keccak256").update(Buffer.concat(sortedPair)).digest();
     }
 
-    const rootHash = Buffer.from(this.tree[0].substring(2), "hex");
+    const rootHash = NearMerkleTree.byteArrayToBuffer(this.tree[0]);
     return current.equals(rootHash);
   }
 
   getRoot(): string {
-    return this.tree[0];
+    // Convert byte array to hex string for backward compatibility
+    const bytes = this.tree[0];
+    return "0x" + Buffer.from(bytes).toString("hex");
   }
 
   dump(): MerkleTreeDump {

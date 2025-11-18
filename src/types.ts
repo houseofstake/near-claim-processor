@@ -29,7 +29,7 @@ export interface MerkleValue {
 
 export interface MerkleTreeDump {
   format: string;
-  tree: string[];
+  tree: number[][];
   values: MerkleValue[];
   leafEncoding: string[];
 }
