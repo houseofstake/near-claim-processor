@@ -4,7 +4,7 @@ import { DATABASE } from "./constants";
 import { DatabaseError, ErrorUtils } from "./errors";
 
 export class DatabaseService {
-  private prisma: PrismaClient;
+  public prisma: PrismaClient;
 
   constructor() {
     this.prisma = new PrismaClient();
@@ -41,6 +41,7 @@ export class DatabaseService {
     endGenerateTime?: Date;
     generated?: number;
     errorMessage?: string;
+    publishedToChain?: boolean;
   }) {
     return await this.prisma.project.create({
       data: {
@@ -57,6 +58,7 @@ export class DatabaseService {
         endGenerateTime: data.endGenerateTime,
         generated: data.generated,
         errorMessage: data.errorMessage,
+        publishedToChain: data.publishedToChain,
       },
     });
   }
@@ -75,6 +77,7 @@ export class DatabaseService {
       endGenerateTime: Date;
       generated: number;
       errorMessage: string;
+      publishedToChain: boolean;
     }>
   ) {
     return await this.prisma.project.update({
@@ -133,6 +136,7 @@ export class DatabaseService {
         .replace(/\.\d{3}Z$/, ""),
       generated: project.generated || undefined,
       message: project.errorMessage || undefined,
+      publishedToChain: project.publishedToChain ?? undefined,
     };
   }
 
@@ -254,6 +258,7 @@ export class DatabaseService {
         totalClaimValue: true,
         totalClaimed: true,
         rootHash: true,
+        publishedToChain: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -340,6 +345,63 @@ export class DatabaseService {
         claimed: false,
       },
       orderBy: [{ createdAt: "desc" }, { projectId: "asc" }],
+    });
+  }
+
+  async toggleProjectPublishedStatus(projectId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { publishedToChain: true },
+    });
+
+    if (!project) {
+      throw new DatabaseError(
+        "project not found",
+        new Error(`Project ${projectId} not found`)
+      );
+    }
+
+    return await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        publishedToChain: !project.publishedToChain,
+      },
+      select: {
+        id: true,
+        publishedToChain: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async getLatestCampaign() {
+    return await this.prisma.project.findFirst({
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  }
+
+  async getNextCampaignId(): Promise<string> {
+    const latestCampaign = await this.getLatestCampaign();
+
+    if (!latestCampaign) {
+      return "1";
+    }
+
+    // Try to parse as a number
+    const currentId = parseInt(latestCampaign.id, 10);
+    if (!isNaN(currentId)) {
+      return (currentId + 1).toString();
+    }
+
+    // If existing projects don't follow the pattern, start from 1
+    return "1";
+  }
+
+  async deleteProject(projectId: string) {
+    return await this.prisma.project.delete({
+      where: { id: projectId },
     });
   }
 }

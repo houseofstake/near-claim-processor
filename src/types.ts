@@ -35,7 +35,14 @@ export interface MerkleTreeDump {
 }
 
 export interface ProcessorStatus {
-  status: 'started' | 'verifying' | 'building' | 'generating' | 'publishing' | 'complete' | 'error';
+  status:
+    | "started"
+    | "verifying"
+    | "building"
+    | "generating"
+    | "publishing"
+    | "complete"
+    | "error";
   projectId: string;
   startTime: string;
   message?: string;
@@ -49,4 +56,5 @@ export interface ProcessorStatus {
   endTime?: string;
   root?: string;
   campaignId?: number;
+  publishedToChain?: boolean;
 }

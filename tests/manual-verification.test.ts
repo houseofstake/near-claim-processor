@@ -53,6 +53,13 @@ const mockPrisma = {
     findMany: vi.fn().mockImplementation(() => {
       return Promise.resolve(Array.from(mockProjects.values()));
     }),
+    findFirst: vi.fn().mockImplementation(({ orderBy }) => {
+      const projects = Array.from(mockProjects.values());
+      if (projects.length === 0) return Promise.resolve(null);
+      // Sort by createdAt desc
+      projects.sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime());
+      return Promise.resolve(projects[0]);
+    }),
   },
   proof: {
     createMany: vi.fn().mockImplementation(({ data }) => {
@@ -70,6 +77,20 @@ const mockPrisma = {
     update: vi.fn().mockResolvedValue({}),
     groupBy: vi.fn().mockResolvedValue([]),
     findUnique: vi.fn().mockResolvedValue(null),
+    deleteMany: vi.fn().mockImplementation(({ where }) => {
+      let deletedCount = 0;
+      const toDelete: string[] = [];
+
+      mockProofs.forEach((proof: any, key: string) => {
+        if (where?.projectId && proof.projectId === where.projectId) {
+          toDelete.push(key);
+          deletedCount++;
+        }
+      });
+
+      toDelete.forEach(key => mockProofs.delete(key));
+      return Promise.resolve({ count: deletedCount });
+    }),
   },
 };
 
@@ -125,7 +146,6 @@ describe("Manual Verification Tests", () => {
 
   describe("Simple 3-Address Test for Manual Verification", () => {
     it("should generate verifiable proofs for 3 addresses with known values", async () => {
-      const projectId = "simple-test";
       const entitlements = [
         { address: "alice.near", lockup: "alice.lockup.near", amount: "100" },
         { address: "bob.near", lockup: "bob.lockup.near", amount: "200" },
@@ -138,19 +158,21 @@ describe("Manual Verification Tests", () => {
 
       console.log("\n🔍 MANUAL VERIFICATION TEST");
       console.log("============================");
-      console.log("Project ID:", projectId);
       console.log("Entitlements:");
       entitlements.forEach((e, i) => {
         console.log(`  ${i}: ${e.address} -> ${e.amount}`);
       });
 
-      // Upload entitlements
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      // Upload entitlements and get auto-generated project ID
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
+      console.log("Project ID:", projectId);
 
       // Process
       await request(processor.getApp())
@@ -238,8 +260,6 @@ describe("Manual Verification Tests", () => {
 
   describe("Deterministic Results Test", () => {
     it("should produce identical results for same inputs", async () => {
-      const projectId1 = "deterministic-1";
-      const projectId2 = "deterministic-2";
       const entitlements = [
         { address: "test1.near", lockup: "test1.lockup.near", amount: "1000" },
         { address: "test2.near", lockup: "test2.lockup.near", amount: "2000" },
@@ -248,14 +268,19 @@ describe("Manual Verification Tests", () => {
       console.log("\n🎯 DETERMINISTIC TEST");
       console.log("=====================");
 
-      // Process same data twice with different project IDs
-      for (const projectId of [projectId1, projectId2]) {
-        await request(processor.getApp())
-          .post(`/upload/${projectId}`)
+      const projectIds: string[] = [];
+
+      // Process same data twice with auto-generated project IDs
+      for (let i = 0; i < 2; i++) {
+        const uploadResponse = await request(processor.getApp())
+          .post("/upload")
           .set("X-API-Key", "test-api-key")
           .set("Content-Type", "text/csv")
           .send(entitlementsToCSV(entitlements))
           .expect(200);
+
+        const projectId = uploadResponse.body.projectId;
+        projectIds.push(projectId);
 
         await request(processor.getApp())
           .get(`/root?project_id=${projectId}`)
@@ -276,10 +301,10 @@ describe("Manual Verification Tests", () => {
 
       // Compare results
       const result1 = await request(processor.getApp())
-        .get(`/root?project_id=${projectId1}`)
+        .get(`/root?project_id=${projectIds[0]}`)
         .set("X-API-Key", "test-api-key");
       const result2 = await request(processor.getApp())
-        .get(`/root?project_id=${projectId2}`)
+        .get(`/root?project_id=${projectIds[1]}`)
         .set("X-API-Key", "test-api-key");
 
       console.log("Root 1:", result1.body.root);
@@ -289,10 +314,10 @@ describe("Manual Verification Tests", () => {
 
       // Compare tree structures
       const tree1 = await request(processor.getApp()).get(
-        `/tree/${projectId1}`
+        `/tree/${projectIds[0]}`
       );
       const tree2 = await request(processor.getApp()).get(
-        `/tree/${projectId2}`
+        `/tree/${projectIds[1]}`
       );
 
       expect(tree1.body.tree).toEqual(tree2.body.tree);
@@ -302,7 +327,6 @@ describe("Manual Verification Tests", () => {
 
   describe("Empty Merkle Tree Edge Case", () => {
     it("should handle single entitlement correctly", async () => {
-      const projectId = "single-entry";
       const entitlements = [
         { address: "only.near", lockup: "only.lockup.near", amount: "42" },
       ];
@@ -311,12 +335,14 @@ describe("Manual Verification Tests", () => {
       console.log("====================");
       console.log("Testing edge case with only one entitlement");
 
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
 
       await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
@@ -361,7 +387,6 @@ describe("Manual Verification Tests", () => {
 
   describe("Powers of 2 Test", () => {
     it("should handle 4 addresses (perfect binary tree)", async () => {
-      const projectId = "power-of-2";
       const entitlements = [
         { address: "addr0.near", lockup: "addr0.lockup.near", amount: "10" },
         { address: "addr1.near", lockup: "addr1.lockup.near", amount: "20" },
@@ -373,12 +398,14 @@ describe("Manual Verification Tests", () => {
       console.log("===========================");
       console.log("Testing with 4 addresses (2^2) for perfect tree structure");
 
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
 
       await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
@@ -476,7 +503,7 @@ describe("Manual Verification Tests", () => {
       }
 
       // Verify basic properties
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
       expect(tree.values.length).toBe(2);
 
       console.log("✅ Direct tree construction successful!");

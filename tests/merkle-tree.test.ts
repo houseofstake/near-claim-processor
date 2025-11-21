@@ -1,173 +1,219 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { NearMerkleTree } from '../src/merkle-tree';
-import { MerkleTreeData } from '../src/types';
+import { describe, it, expect, beforeEach } from "vitest";
+import { NearMerkleTree } from "../src/merkle-tree";
+import { MerkleTreeData } from "../src/types";
 
-describe('NearMerkleTree', () => {
+describe("NearMerkleTree", () => {
   const sampleEntitlements: Array<MerkleTreeData> = [
-    { account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000000000000000000000' },
-    { account: 'bob.near', lockup: 'bob.lockup.near', amount: '2000000000000000000000' },
-    { account: 'charlie.near', lockup: 'charlie.lockup.near', amount: '3000000000000000000000' },
-    { account: 'dave.near', lockup: 'dave.lockup.near', amount: '4000000000000000000000' }
+    {
+      account: "alice.near",
+      lockup: "alice.lockup.near",
+      amount: "1000000000000000000000",
+    },
+    {
+      account: "bob.near",
+      lockup: "bob.lockup.near",
+      amount: "2000000000000000000000",
+    },
+    {
+      account: "charlie.near",
+      lockup: "charlie.lockup.near",
+      amount: "3000000000000000000000",
+    },
+    {
+      account: "dave.near",
+      lockup: "dave.lockup.near",
+      amount: "4000000000000000000000",
+    },
   ];
 
-  const leafEncoding = ['account', 'lockup', 'amount'];
+  const leafEncoding = ["account", "lockup", "amount"];
 
-  describe('Tree Construction', () => {
-    it('should create a tree from values', async () => {
+  describe("Tree Construction", () => {
+    it("should create a tree from values", async () => {
       const tree = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
-      
+
       expect(tree).toBeDefined();
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
       expect(tree.values).toHaveLength(sampleEntitlements.length);
     });
 
-    it('should handle single entry', async () => {
-      const singleEntry: Array<MerkleTreeData> = [{ account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000000000000000000000' }];
+    it("should handle single entry", async () => {
+      const singleEntry: Array<MerkleTreeData> = [
+        {
+          account: "alice.near",
+          lockup: "alice.lockup.near",
+          amount: "1000000000000000000000",
+        },
+      ];
       const tree = await NearMerkleTree.of(singleEntry, leafEncoding);
-      
+
       expect(tree.values).toHaveLength(1);
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
     });
 
-    it('should handle large datasets (10K entries)', async () => {
+    it("should handle large datasets (10K entries)", async () => {
       const largeEntitlements: Array<MerkleTreeData> = [];
       for (let i = 0; i < 10000; i++) {
         largeEntitlements.push({
           account: `user${i}.near`,
           lockup: `user${i}.lockup.near`,
-          amount: (BigInt(i) * BigInt('1000000000000000000')).toString()
+          amount: (BigInt(i) * BigInt("1000000000000000000")).toString(),
         });
       }
-      
+
       const tree = await NearMerkleTree.of(largeEntitlements, leafEncoding);
       expect(tree.values).toHaveLength(10000);
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
     }, 30000);
 
-    it('should handle massive datasets (100K entries)', async () => {
+    it("should handle massive datasets (100K entries)", async () => {
       const massiveEntitlements: Array<MerkleTreeData> = [];
       for (let i = 0; i < 100000; i++) {
         // Use more varied addresses to avoid patterns
-        const addressId = i.toString(16).padStart(8, '0');
+        const addressId = i.toString(16).padStart(8, "0");
         massiveEntitlements.push({
           account: `user${addressId}.near`,
           lockup: `user${addressId}.lockup.near`,
-          amount: (BigInt(i) * BigInt('1000000000000000000')).toString()
+          amount: (BigInt(i) * BigInt("1000000000000000000")).toString(),
         });
       }
-      
+
       const startTime = Date.now();
       const tree = await NearMerkleTree.of(massiveEntitlements, leafEncoding);
       const buildTime = Date.now() - startTime;
-      
+
       expect(tree.values).toHaveLength(100000);
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
-      
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
+
       // Should build in reasonable time (less than 2 minutes)
       expect(buildTime).toBeLessThan(120000);
-      
+
       console.log(`Built tree with 100K entries in ${buildTime}ms`);
     }, 180000);
 
-    it('should handle ultra-massive datasets (1M entries)', async () => {
+    it("should handle ultra-massive datasets (1M entries)", async () => {
       const ultraMassiveEntitlements: Array<MerkleTreeData> = [];
-      
-      console.log('Generating 1M test entries...');
+
+      console.log("Generating 1M test entries...");
       const generateStart = Date.now();
-      
+
       for (let i = 0; i < 1000000; i++) {
         // Use hex addresses for variety and realistic patterns
-        const addressId = i.toString(16).padStart(8, '0');
+        const addressId = i.toString(16).padStart(8, "0");
         ultraMassiveEntitlements.push({
           account: `${addressId}.near`,
           lockup: `${addressId}.lockup.near`,
-          amount: (BigInt(i) * BigInt('1000000000000000000')).toString()
+          amount: (BigInt(i) * BigInt("1000000000000000000")).toString(),
         });
-        
+
         // Progress logging
         if (i > 0 && i % 100000 === 0) {
           console.log(`Generated ${i} entries...`);
         }
       }
-      
+
       const generateTime = Date.now() - generateStart;
       console.log(`Generated 1M entries in ${generateTime}ms`);
-      
-      console.log('Building Merkle tree for 1M entries...');
+
+      console.log("Building Merkle tree for 1M entries...");
       const startTime = Date.now();
-      const tree = await NearMerkleTree.of(ultraMassiveEntitlements, leafEncoding);
+      const tree = await NearMerkleTree.of(
+        ultraMassiveEntitlements,
+        leafEncoding
+      );
       const buildTime = Date.now() - startTime;
-      
+
       expect(tree.values).toHaveLength(1000000);
-      expect(tree.getRoot()).toMatch(/^0x[a-fA-F0-9]{64}$/);
-      
+      expect(JSON.parse(tree.getRoot())).toHaveLength(32);
+
       // Should build in reasonable time (less than 10 minutes)
       expect(buildTime).toBeLessThan(600000);
-      
-      console.log(`Built tree with 1M entries in ${buildTime}ms (${Math.round(buildTime/1000)}s)`);
-      
+
+      console.log(
+        `Built tree with 1M entries in ${buildTime}ms (${Math.round(
+          buildTime / 1000
+        )}s)`
+      );
+
       // Test proof generation for a few random entries
       const testIndices = [0, 50000, 500000, 999999];
       for (const index of testIndices) {
         const proofStart = Date.now();
         const proof = tree.getProof(tree.values[index].treeIndex);
         const proofTime = Date.now() - proofStart;
-        
+
         expect(Array.isArray(proof)).toBe(true);
         expect(proofTime).toBeLessThan(100); // Should be very fast
-        
+
         // Verify the proof
         const isValid = tree.verify(proof, ultraMassiveEntitlements[index]);
         expect(isValid).toBe(true);
       }
     }, 900000); // 15 minute timeout
 
-    it('should create deterministic trees for same input', async () => {
+    it("should create deterministic trees for same input", async () => {
       const tree1 = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
       const tree2 = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
-      
+
       expect(tree1.getRoot()).toBe(tree2.getRoot());
     });
 
-    it('should create different roots for different inputs', async () => {
+    it("should create different roots for different inputs", async () => {
       const tree1 = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
       const differentEntitlements: Array<MerkleTreeData> = [
-        { account: 'eve.near', lockup: 'eve.lockup.near', amount: '5000000000000000000000' },
-        { account: 'frank.near', lockup: 'frank.lockup.near', amount: '6000000000000000000000' }
+        {
+          account: "eve.near",
+          lockup: "eve.lockup.near",
+          amount: "5000000000000000000000",
+        },
+        {
+          account: "frank.near",
+          lockup: "frank.lockup.near",
+          amount: "6000000000000000000000",
+        },
       ];
-      const tree2 = await NearMerkleTree.of(differentEntitlements, leafEncoding);
-      
+      const tree2 = await NearMerkleTree.of(
+        differentEntitlements,
+        leafEncoding
+      );
+
       expect(tree1.getRoot()).not.toBe(tree2.getRoot());
     });
   });
 
-  describe('Proof Generation', () => {
+  describe("Proof Generation", () => {
     let tree: NearMerkleTree;
 
     beforeEach(async () => {
       tree = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
     });
 
-    it('should generate proofs for all entries', () => {
+    it("should generate proofs for all entries", () => {
       for (const valueEntry of tree.values) {
         const proof = tree.getProof(valueEntry.treeIndex);
         expect(Array.isArray(proof)).toBe(true);
         // Each proof element should be a byte array (array of numbers)
-        expect(proof.every(p => Array.isArray(p) && p.every(b => typeof b === 'number' && b >= 0 && b <= 255))).toBe(true);
+        expect(
+          proof.every(
+            (p) =>
+              Array.isArray(p) &&
+              p.every((b) => typeof b === "number" && b >= 0 && b <= 255)
+          )
+        ).toBe(true);
         // Each proof element should be 32 bytes (SHA256 hash)
-        expect(proof.every(p => p.length === 32)).toBe(true);
+        expect(proof.every((p) => p.length === 32)).toBe(true);
       }
     });
 
-    it('should throw error for invalid index', () => {
-      expect(() => tree.getProof(-1)).toThrow('Index out of range');
-      expect(() => tree.getProof(1000)).toThrow('Index out of range');
+    it("should throw error for invalid index", () => {
+      expect(() => tree.getProof(-1)).toThrow("Index out of range");
+      expect(() => tree.getProof(1000)).toThrow("Index out of range");
     });
 
-    it('should generate different proofs for different entries', () => {
+    it("should generate different proofs for different entries", () => {
       const proof1 = tree.getProof(tree.values[0].treeIndex);
       const proof2 = tree.getProof(tree.values[1].treeIndex);
-      
+
       // Proofs should be different (unless it's a very small tree)
       if (tree.values.length > 2) {
         expect(JSON.stringify(proof1)).not.toBe(JSON.stringify(proof2));
@@ -175,14 +221,14 @@ describe('NearMerkleTree', () => {
     });
   });
 
-  describe('Proof Verification', () => {
+  describe("Proof Verification", () => {
     let tree: NearMerkleTree;
 
     beforeEach(async () => {
       tree = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
     });
 
-    it('should verify valid proofs', () => {
+    it("should verify valid proofs", () => {
       for (const valueEntry of tree.values) {
         const proof = tree.getProof(valueEntry.treeIndex);
         const isValid = tree.verify(proof, valueEntry.value);
@@ -190,17 +236,21 @@ describe('NearMerkleTree', () => {
       }
     });
 
-    it('should reject invalid proofs', () => {
+    it("should reject invalid proofs", () => {
       const validEntry = tree.values[0];
       const proof = tree.getProof(validEntry.treeIndex);
-      
+
       // Test with wrong value
-      const invalidValue: MerkleTreeData = { account: 'invalid.near', lockup: 'invalid.lockup.near', amount: '999' };
+      const invalidValue: MerkleTreeData = {
+        account: "invalid.near",
+        lockup: "invalid.lockup.near",
+        amount: "999",
+      };
       const isValid = tree.verify(proof, invalidValue);
       expect(isValid).toBe(false);
     });
 
-    it('should reject tampered proofs', () => {
+    it("should reject tampered proofs", () => {
       const validEntry = tree.values[0];
       const proof = tree.getProof(validEntry.treeIndex);
 
@@ -215,56 +265,95 @@ describe('NearMerkleTree', () => {
       expect(isValid).toBe(false);
     });
 
-    it('should handle empty proofs for single-entry tree', async () => {
-      const singleTree = await NearMerkleTree.of([{ account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000' }], leafEncoding);
+    it("should handle empty proofs for single-entry tree", async () => {
+      const singleTree = await NearMerkleTree.of(
+        [
+          {
+            account: "alice.near",
+            lockup: "alice.lockup.near",
+            amount: "1000",
+          },
+        ],
+        leafEncoding
+      );
       const proof = singleTree.getProof(singleTree.values[0].treeIndex);
       const isValid = singleTree.verify(proof, singleTree.values[0].value);
       expect(isValid).toBe(true);
     });
   });
 
-  describe('Address Format Handling', () => {
-    it('should handle NEAR account IDs', async () => {
+  describe("Address Format Handling", () => {
+    it("should handle NEAR account IDs", async () => {
       const nearAccounts: Array<MerkleTreeData> = [
-        { account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000' },
-        { account: 'bob.testnet', lockup: 'bob.lockup.testnet', amount: '2000' },
-        { account: 'contract.aurora', lockup: 'contract.lockup.aurora', amount: '3000' }
+        { account: "alice.near", lockup: "alice.lockup.near", amount: "1000" },
+        {
+          account: "bob.testnet",
+          lockup: "bob.lockup.testnet",
+          amount: "2000",
+        },
+        {
+          account: "contract.aurora",
+          lockup: "contract.lockup.aurora",
+          amount: "3000",
+        },
       ];
-      
+
       const tree = await NearMerkleTree.of(nearAccounts, leafEncoding);
       expect(tree.values).toHaveLength(3);
-      
+
       for (const value of tree.values) {
         const proof = tree.getProof(value.treeIndex);
         expect(tree.verify(proof, value.value)).toBe(true);
       }
     });
 
-    it('should handle implicit accounts (hex)', async () => {
+    it("should handle implicit accounts (hex)", async () => {
       const implicitAccounts: Array<MerkleTreeData> = [
-        { account: 'abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab', lockup: 'abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab', amount: '1000' },
-        { account: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef', lockup: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef', amount: '2000' }
+        {
+          account:
+            "abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+          lockup:
+            "abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+          amount: "1000",
+        },
+        {
+          account:
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          lockup:
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          amount: "2000",
+        },
       ];
-      
+
       const tree = await NearMerkleTree.of(implicitAccounts, leafEncoding);
       expect(tree.values).toHaveLength(2);
-      
+
       for (const value of tree.values) {
         const proof = tree.getProof(value.treeIndex);
         expect(tree.verify(proof, value.value)).toBe(true);
       }
     });
 
-    it('should handle mixed address formats', async () => {
+    it("should handle mixed address formats", async () => {
       const mixedAddresses: Array<MerkleTreeData> = [
-        { account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000' },
-        { account: 'abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab', lockup: 'abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab', amount: '2000' },
-        { account: 'bob.testnet', lockup: 'bob.lockup.testnet', amount: '3000' }
+        { account: "alice.near", lockup: "alice.lockup.near", amount: "1000" },
+        {
+          account:
+            "abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+          lockup:
+            "abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+          amount: "2000",
+        },
+        {
+          account: "bob.testnet",
+          lockup: "bob.lockup.testnet",
+          amount: "3000",
+        },
       ];
-      
+
       const tree = await NearMerkleTree.of(mixedAddresses, leafEncoding);
       expect(tree.values).toHaveLength(3);
-      
+
       for (const value of tree.values) {
         const proof = tree.getProof(value.treeIndex);
         expect(tree.verify(proof, value.value)).toBe(true);
@@ -272,37 +361,37 @@ describe('NearMerkleTree', () => {
     });
   });
 
-  describe('Serialization', () => {
+  describe("Serialization", () => {
     let tree: NearMerkleTree;
 
     beforeEach(async () => {
       tree = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
     });
 
-    it('should dump tree to JSON format', () => {
+    it("should dump tree to JSON format", () => {
       const dump = tree.dump();
-      
-      expect(dump).toHaveProperty('format', 'near-v1');
-      expect(dump).toHaveProperty('tree');
-      expect(dump).toHaveProperty('values');
-      expect(dump).toHaveProperty('leafEncoding');
+
+      expect(dump).toHaveProperty("format", "near-v1");
+      expect(dump).toHaveProperty("tree");
+      expect(dump).toHaveProperty("values");
+      expect(dump).toHaveProperty("leafEncoding");
       expect(Array.isArray(dump.tree)).toBe(true);
       expect(Array.isArray(dump.values)).toBe(true);
       expect(Array.isArray(dump.leafEncoding)).toBe(true);
     });
 
-    it('should load tree from JSON dump', () => {
+    it("should load tree from JSON dump", () => {
       const dump = tree.dump();
       const loadedTree = NearMerkleTree.load(dump);
-      
+
       expect(loadedTree.getRoot()).toBe(tree.getRoot());
       expect(loadedTree.values).toEqual(tree.values);
     });
 
-    it('should maintain functionality after load', () => {
+    it("should maintain functionality after load", () => {
       const dump = tree.dump();
       const loadedTree = NearMerkleTree.load(dump);
-      
+
       // Test that proofs still work
       for (const valueEntry of loadedTree.values) {
         const proof = loadedTree.getProof(valueEntry.treeIndex);
@@ -311,54 +400,70 @@ describe('NearMerkleTree', () => {
       }
     });
 
-    it('should reject invalid format', () => {
+    it("should reject invalid format", () => {
       const invalidDump = {
-        format: 'invalid-format',
+        format: "invalid-format",
         tree: [],
         values: [],
-        leafEncoding: []
+        leafEncoding: [],
       };
-      
-      expect(() => NearMerkleTree.load(invalidDump)).toThrow("Unknown format 'invalid-format'");
+
+      expect(() => NearMerkleTree.load(invalidDump)).toThrow(
+        "Unknown format 'invalid-format'"
+      );
     });
 
-    it('should reject missing leaf encoding', () => {
+    it("should reject missing leaf encoding", () => {
       const invalidDump = {
-        format: 'near-v1',
+        format: "near-v1",
         tree: [],
-        values: []
+        values: [],
       };
-      
-      expect(() => NearMerkleTree.load(invalidDump as any)).toThrow('Expected leaf encoding');
+
+      expect(() => NearMerkleTree.load(invalidDump as any)).toThrow(
+        "Expected leaf encoding"
+      );
     });
   });
 
-  describe('Value Conversion', () => {
-    it('should handle string amounts', async () => {
+  describe("Value Conversion", () => {
+    it("should handle string amounts", async () => {
       const stringAmounts: Array<MerkleTreeData> = [
-        { account: 'alice.near', lockup: 'alice.lockup.near', amount: '1000000000000000000000' },
-        { account: 'bob.near', lockup: 'bob.lockup.near', amount: '999999999999999999999999' }
+        {
+          account: "alice.near",
+          lockup: "alice.lockup.near",
+          amount: "1000000000000000000000",
+        },
+        {
+          account: "bob.near",
+          lockup: "bob.lockup.near",
+          amount: "999999999999999999999999",
+        },
       ];
-      
+
       const tree = await NearMerkleTree.of(stringAmounts, leafEncoding);
       expect(tree.values).toHaveLength(2);
-      
+
       for (const value of tree.values) {
         const proof = tree.getProof(value.treeIndex);
         expect(tree.verify(proof, value.value)).toBe(true);
       }
     });
 
-    it('should handle numeric amounts', async () => {
+    it("should handle numeric amounts", async () => {
       const numericAmounts: Array<MerkleTreeData> = [
-        { account: 'alice.near', lockup: 'alice.lockup.near', amount: '0' },
-        { account: 'bob.near', lockup: 'bob.lockup.near', amount: '1' },
-        { account: 'charlie.near', lockup: 'charlie.lockup.near', amount: '123456789' }
+        { account: "alice.near", lockup: "alice.lockup.near", amount: "0" },
+        { account: "bob.near", lockup: "bob.lockup.near", amount: "1" },
+        {
+          account: "charlie.near",
+          lockup: "charlie.lockup.near",
+          amount: "123456789",
+        },
       ];
-      
+
       const tree = await NearMerkleTree.of(numericAmounts, leafEncoding);
       expect(tree.values).toHaveLength(3);
-      
+
       for (const value of tree.values) {
         const proof = tree.getProof(value.treeIndex);
         expect(tree.verify(proof, value.value)).toBe(true);
@@ -366,44 +471,48 @@ describe('NearMerkleTree', () => {
     });
   });
 
-  describe('Security Properties', () => {
+  describe("Security Properties", () => {
     let tree: NearMerkleTree;
 
     beforeEach(async () => {
       tree = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
     });
 
-    it('should use SHA256 hashing', () => {
+    it("should use SHA256 hashing", () => {
       // Verify that the implementation uses SHA256 by checking root format
       const root = tree.getRoot();
-      expect(root).toMatch(/^0x[a-fA-F0-9]{64}$/);
-      
-      // SHA256 produces 32-byte (64 hex chars) output
-      expect(root.length).toBe(66); // 0x + 64 hex chars
+      const rootBytes = JSON.parse(root);
+      expect(rootBytes).toHaveLength(32);
+
+      // SHA256 produces 32-byte output
+      expect(rootBytes.every((b: number) => b >= 0 && b <= 255)).toBe(true);
     });
 
-    it('should sort hash pairs before combining', async () => {
+    it("should sort hash pairs before combining", async () => {
       // This is tested implicitly by the deterministic nature of the tree
       // If pairs weren't sorted consistently, we'd get different roots for same data
       const tree1 = await NearMerkleTree.of(sampleEntitlements, leafEncoding);
-      const tree2 = await NearMerkleTree.of([...sampleEntitlements].reverse(), leafEncoding);
-      
+      const tree2 = await NearMerkleTree.of(
+        [...sampleEntitlements].reverse(),
+        leafEncoding
+      );
+
       // Even with reversed input order, root should be the same due to sorting
       expect(tree1.getRoot()).toBe(tree2.getRoot());
     });
 
-    it('should use double hashing for leaf nodes', () => {
+    it("should use double hashing for leaf nodes", () => {
       // This is a security feature - leaves are double-hashed
       // We can't easily test this directly without exposing internal methods,
       // but we can verify that tampering with values invalidates proofs
       const validEntry = tree.values[0];
       const proof = tree.getProof(validEntry.treeIndex);
-      
+
       // Slightly modify the amount
       const tamperedValue: MerkleTreeData = {
         account: validEntry.value.account,
         lockup: validEntry.value.lockup,
-        amount: (BigInt(validEntry.value.amount) + 1n).toString()
+        amount: (BigInt(validEntry.value.amount) + 1n).toString(),
       };
       const isValid = tree.verify(proof, tamperedValue);
       expect(isValid).toBe(false);

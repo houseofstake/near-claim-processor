@@ -51,6 +51,15 @@ const mockPrisma = {
     findMany: vi.fn().mockImplementation(() => {
       return Promise.resolve(Array.from(mockProjects.values()));
     }),
+    findFirst: vi.fn().mockImplementation(({ orderBy }) => {
+      const projects = Array.from(mockProjects.values());
+      if (projects.length === 0) return Promise.resolve(null);
+      // Sort by createdAt desc
+      projects.sort(
+        (a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime()
+      );
+      return Promise.resolve(projects[0]);
+    }),
   },
   proof: {
     createMany: vi.fn().mockImplementation(({ data }) => {
@@ -83,6 +92,20 @@ const mockPrisma = {
         return Promise.resolve(updated);
       }
       return Promise.resolve(null);
+    }),
+    deleteMany: vi.fn().mockImplementation(({ where }) => {
+      let deletedCount = 0;
+      const toDelete: string[] = [];
+
+      mockProofs.forEach((proof: any, key: string) => {
+        if (where?.projectId && proof.projectId === where.projectId) {
+          toDelete.push(key);
+          deletedCount++;
+        }
+      });
+
+      toDelete.forEach((key) => mockProofs.delete(key));
+      return Promise.resolve({ count: deletedCount });
     }),
     groupBy: vi.fn().mockImplementation(({ where, by }) => {
       const proofs = Array.from(mockProofs.values()).filter((proof: any) => {
@@ -211,7 +234,6 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should upload entitlements for a project", async () => {
-      const projectId = "test-project";
       const entitlements = [
         {
           address: "alice.near",
@@ -226,7 +248,7 @@ describe("NearClaimProcessor", () => {
       ];
 
       const response = await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
@@ -237,10 +259,8 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should reject invalid entitlements format", async () => {
-      const projectId = "test-project";
-
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send("alice.near,\nbob.near,1000")
@@ -248,10 +268,8 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should reject empty entitlements array", async () => {
-      const projectId = "test-project";
-
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send("")
@@ -259,10 +277,8 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should reject non-array entitlements", async () => {
-      const projectId = "test-project";
-
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send("invalid")
@@ -270,7 +286,6 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should list projects after upload", async () => {
-      const projectId = "test-project";
       const entitlements = [
         {
           address: "alice.near",
@@ -280,12 +295,14 @@ describe("NearClaimProcessor", () => {
       ];
 
       // Upload entitlements
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
 
       // Start processing
       await request(processor.getApp())
@@ -308,7 +325,6 @@ describe("NearClaimProcessor", () => {
   });
 
   describe("Processing Workflow", () => {
-    const projectId = "workflow-test";
     const entitlements = [
       {
         address: "alice.near",
@@ -327,17 +343,16 @@ describe("NearClaimProcessor", () => {
       },
     ];
 
-    beforeEach(async () => {
-      // Upload test entitlements
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+    it("should start processing when project_id is provided", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
-    });
 
-    it("should start processing when project_id is provided", async () => {
+      const projectId = uploadResponse.body.projectId;
+
       const response = await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
         .set("X-API-Key", "test-api-key")
@@ -366,6 +381,14 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should complete processing and generate root", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       // Start processing
       await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
@@ -398,12 +421,20 @@ describe("NearClaimProcessor", () => {
 
       expect(finalResponse.status).toBe("complete");
       expect(finalResponse).toHaveProperty("root");
-      expect(finalResponse.root).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(JSON.parse(finalResponse.root)).toHaveLength(32);
       expect(finalResponse).toHaveProperty("numEntitlements", 3);
       expect(finalResponse).toHaveProperty("generated", 3);
     }, 15000);
 
     it("should allow multiple status checks during processing", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       // Start processing
       const response1 = await request(processor.getApp())
         .get(`/root?project_id=${projectId}`)
@@ -422,7 +453,6 @@ describe("NearClaimProcessor", () => {
   });
 
   describe("Tree and Proof Retrieval", () => {
-    const projectId = "retrieval-test";
     const entitlements = [
       {
         address: "alice.near",
@@ -438,12 +468,14 @@ describe("NearClaimProcessor", () => {
 
     beforeEach(async () => {
       // Upload and process entitlements
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
 
       // Start processing and wait for completion
       await request(processor.getApp())
@@ -468,6 +500,14 @@ describe("NearClaimProcessor", () => {
     }, 15000);
 
     it("should retrieve tree data for completed project", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       const response = await request(processor.getApp())
         .get(`/tree/${projectId}`)
         .set("X-API-Key", "test-api-key")
@@ -491,6 +531,14 @@ describe("NearClaimProcessor", () => {
 
     it("should retrieve proof for specific address", async () => {
       const address = "alice.near";
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       const response = await request(processor.getApp())
         .get(`/proof/${projectId}/${address}`)
         .set("X-API-Key", "test-api-key")
@@ -502,10 +550,18 @@ describe("NearClaimProcessor", () => {
       expect(Array.isArray(response.body.proof)).toBe(true);
       expect(response.body.address).toBe(address);
       expect(response.body.amount).toBe("1000000000000000000000");
-      expect(response.body.campaignId).toBe("retrieval-test");
+      expect(response.body.campaignId).toBe(projectId);
     });
 
     it("should handle case-insensitive address lookup", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       const response = await request(processor.getApp())
         .get(`/proof/${projectId}/ALICE.NEAR`)
         .set("X-API-Key", "test-api-key")
@@ -515,6 +571,14 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should return 404 for non-existent address proof", async () => {
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
+        .set("X-API-Key", "test-api-key")
+        .set("Content-Type", "text/csv")
+        .send(entitlementsToCSV(entitlements))
+        .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
       await request(processor.getApp())
         .get(`/proof/${projectId}/nonexistent.near`)
         .set("X-API-Key", "test-api-key")
@@ -544,7 +608,7 @@ describe("NearClaimProcessor", () => {
 
     it("should handle malformed JSON requests", async () => {
       await request(processor.getApp())
-        .post("/upload/test")
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send("invalid json")
@@ -553,7 +617,7 @@ describe("NearClaimProcessor", () => {
 
     it("should handle missing request body", async () => {
       await request(processor.getApp())
-        .post("/upload/test")
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .expect(400);
     });
@@ -561,10 +625,8 @@ describe("NearClaimProcessor", () => {
 
   describe("Data Validation", () => {
     it("should validate entitlement addresses", async () => {
-      const projectId = "validation-test";
-
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(",1000\nalice.near,2000")
@@ -572,10 +634,8 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should validate entitlement amounts", async () => {
-      const projectId = "validation-test";
-
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send("alice.near,\nbob.near,2000")
@@ -583,7 +643,6 @@ describe("NearClaimProcessor", () => {
     });
 
     it("should accept valid NEAR addresses", async () => {
-      const projectId = "address-test";
       const entitlements = [
         { address: "alice.near", lockup: "alice.lockup.near", amount: "1000" },
         {
@@ -606,7 +665,7 @@ describe("NearClaimProcessor", () => {
       ];
 
       await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
@@ -616,7 +675,6 @@ describe("NearClaimProcessor", () => {
 
   describe("Large Dataset Handling", () => {
     it("should handle large number of entitlements (10K)", async () => {
-      const projectId = "large-dataset-10k";
       const entitlements = Array.from({ length: 10000 }, (_, i) => ({
         address: `user${i.toString(16).padStart(8, "0")}.near`,
         lockup: `user${i.toString(16).padStart(8, "0")}.lockup.near`,
@@ -625,12 +683,13 @@ describe("NearClaimProcessor", () => {
 
       // Upload large dataset
       const uploadResponse = await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
 
+      const projectId = uploadResponse.body.projectId;
       expect(uploadResponse.body.message).toContain("10000 entitlements");
 
       // Start processing
@@ -663,7 +722,6 @@ describe("NearClaimProcessor", () => {
     }, 120000);
 
     it("should handle massive datasets (100K entries)", async () => {
-      const projectId = "massive-dataset-100k";
       const entitlements = Array.from({ length: 100000 }, (_, i) => ({
         address: `user${i.toString(16).padStart(8, "0")}.near`,
         lockup: `user${i.toString(16).padStart(8, "0")}.lockup.near`,
@@ -673,13 +731,14 @@ describe("NearClaimProcessor", () => {
       console.log("Uploading 100K entitlements...");
       // Upload massive dataset
       const uploadResponse = await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
 
       expect(uploadResponse.body.message).toContain("100000 entitlements");
+      const projectId = uploadResponse.body.projectId;
 
       console.log("Starting processing...");
       // Start processing
@@ -723,8 +782,6 @@ describe("NearClaimProcessor", () => {
     }, 1200000); // 20 minute timeout
 
     it("should handle ultra-massive datasets (500K entries)", async () => {
-      const projectId = "ultra-massive-dataset-500k";
-
       console.log("Generating 500K test entitlements...");
       const entitlements = Array.from({ length: 500000 }, (_, i) => ({
         address: `${i.toString(16).padStart(8, "0")}.near`,
@@ -735,13 +792,14 @@ describe("NearClaimProcessor", () => {
       console.log("Uploading 500K entitlements...");
       // Upload ultra-massive dataset
       const uploadResponse = await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
 
       expect(uploadResponse.body.message).toContain("500000 entitlements");
+      const projectId = uploadResponse.body.projectId;
 
       console.log("Starting processing of 500K entries...");
       // Start processing
@@ -788,7 +846,7 @@ describe("NearClaimProcessor", () => {
 
           expect(response.body.numEntitlements).toBe(500000);
           expect(response.body.generated).toBe(500000);
-          expect(response.body.root).toMatch(/^0x[a-fA-F0-9]{64}$/);
+          expect(JSON.parse(response.body.root)).toHaveLength(32);
           completed = true;
         } else if (response.body.status === "error") {
           throw new Error(
@@ -805,7 +863,6 @@ describe("NearClaimProcessor", () => {
   });
 
   describe("Status Progression", () => {
-    const projectId = "status-test";
     const entitlements = [
       {
         address: "alice.near",
@@ -816,12 +873,14 @@ describe("NearClaimProcessor", () => {
 
     it("should progress through expected statuses", async () => {
       // Upload entitlements
-      await request(processor.getApp())
-        .post(`/upload/${projectId}`)
+      const uploadResponse = await request(processor.getApp())
+        .post("/upload")
         .set("X-API-Key", "test-api-key")
         .set("Content-Type", "text/csv")
         .send(entitlementsToCSV(entitlements))
         .expect(200);
+
+      const projectId = uploadResponse.body.projectId;
 
       const observedStatuses = new Set<string>();
 

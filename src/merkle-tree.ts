@@ -48,7 +48,7 @@ export class NearMerkleTree {
 
   private static formatProofAsByteArrays(proof: number[][]): string {
     const formatted = proof.map(
-      (bytes) => `    [\n${bytes.map((n) => `      ${n}`).join(",\n")}\n    ]`,
+      (bytes) => `    [\n${bytes.map((n) => `      ${n}`).join(",\n")}\n    ]`
     );
     return `[\n${formatted.join(",\n")}\n  ]`;
   }
@@ -354,9 +354,8 @@ export class NearMerkleTree {
   }
 
   getRoot(): string {
-    // Convert byte array to hex string for backward compatibility
     const bytes = this.tree[0];
-    return "0x" + Buffer.from(bytes).toString("hex");
+    return JSON.stringify(bytes);
   }
 
   dump(): MerkleTreeDump {

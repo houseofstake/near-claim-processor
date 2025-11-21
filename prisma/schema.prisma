@@ -9,42 +9,43 @@ datasource db {
 }
 
 model Project {
-  id                String   @id
-  status            String
-  startTime         DateTime @map("start_time")
-  endTime           DateTime? @map("end_time")
-  numEntitlements   Int?     @map("num_entitlements")
-  totalClaimValue   String?  @map("total_claim_value") // Using String for BigInt compatibility
-  totalClaimed      String   @default("0") @map("total_claimed") // Track total claimed amount
-  rootHash          String?  @map("root_hash")
-  buildElapsed      Float?   @map("build_elapsed")
-  totalElapsed      Float?   @map("total_elapsed")
-  buildStartTime    DateTime? @map("build_start_time")
-  endGenerateTime   DateTime? @map("end_generate_time")
-  generated         Int?
-  errorMessage      String?  @map("error_message")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id               String    @id
+  status           String
+  startTime        DateTime  @map("start_time")
+  endTime          DateTime? @map("end_time")
+  numEntitlements  Int?      @map("num_entitlements")
+  totalClaimValue  String?   @map("total_claim_value") // Using String for BigInt compatibility
+  totalClaimed     String    @default("0") @map("total_claimed") // Track total claimed amount
+  rootHash         String?   @map("root_hash")
+  buildElapsed     Float?    @map("build_elapsed")
+  totalElapsed     Float?    @map("total_elapsed")
+  buildStartTime   DateTime? @map("build_start_time")
+  endGenerateTime  DateTime? @map("end_generate_time")
+  generated        Int?
+  errorMessage     String?   @map("error_message")
+  publishedToChain Boolean   @default(false) @map("published_to_chain")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  proofs            Proof[]
-  
+  proofs Proof[]
+
   @@map("projects")
 }
 
 model Proof {
-  projectId         String   @map("project_id")
-  address           String
-  amount            String   // Using String for BigInt compatibility
-  treeIndex         Int      @map("tree_index")
-  claimed           Boolean  @default(false)
-  claimedAt         DateTime? @map("claimed_at")
-  claimedTxHash     String?  @map("claimed_tx_hash")
-  gcsPath           String   @map("gcs_path")
-  createdAt         DateTime @default(now()) @map("created_at")
+  projectId     String    @map("project_id")
+  address       String
+  amount        String // Using String for BigInt compatibility
+  treeIndex     Int       @map("tree_index")
+  claimed       Boolean   @default(false)
+  claimedAt     DateTime? @map("claimed_at")
+  claimedTxHash String?   @map("claimed_tx_hash")
+  gcsPath       String    @map("gcs_path")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   // Relations
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, address])
   @@index([projectId])

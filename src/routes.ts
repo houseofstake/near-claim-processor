@@ -267,12 +267,8 @@ export function setupRoutes(
   });
 
   // Upload entitlements file (CSV only)
-  app.post("/upload/:projectId", requireApiKey(), async (req, res) => {
+  app.post("/upload", requireApiKey(), async (req, res) => {
     try {
-      const { projectId } = req.params;
-
-      ValidationUtils.validateProjectId(projectId);
-
       const csvData = req.body as string;
       if (
         !csvData ||
@@ -287,17 +283,43 @@ export function setupRoutes(
       // Check for duplicate addresses
       checkForDuplicateAddresses(entitlements);
 
-      // Check if project already exists
-      const existingProject = await database.getProject(projectId);
-      if (existingProject) {
-        // Allow upload if project is in 'created', 'error' state, or if re-uploading to same project
-        if (!["created", "error"].includes(existingProject.status)) {
-          return res.status(HTTP_STATUS.CONFLICT).json({
-            error:
-              "Project already exists and is not in error or created state",
-            currentStatus: existingProject.status,
-          });
+      // Check if latest campaign is unpublished - if so, replace it
+      const latestCampaign = await database.getLatestCampaign();
+      let projectId: string;
+
+      if (latestCampaign && !latestCampaign.publishedToChain) {
+        // Replace the unpublished campaign
+        projectId = latestCampaign.id;
+
+        // Clean up any active processor for this campaign
+        const existingProcessor = activeProcessors.get(projectId);
+        if (existingProcessor) {
+          activeProcessors.delete(projectId);
         }
+
+        // Delete existing proofs for this campaign (cascade will handle this)
+        // Update the project to reset it
+        await database.updateProject(projectId, {
+          status: "created",
+          endTime: undefined,
+          numEntitlements: undefined,
+          totalClaimValue: undefined,
+          rootHash: undefined,
+          buildElapsed: undefined,
+          totalElapsed: undefined,
+          buildStartTime: undefined,
+          endGenerateTime: undefined,
+          generated: undefined,
+          errorMessage: undefined,
+        });
+
+        // Delete all existing proofs
+        await database.prisma.proof.deleteMany({
+          where: { projectId },
+        });
+      } else {
+        // Create a new sequential campaign
+        projectId = await database.getNextCampaignId();
       }
 
       // Store entitlements
@@ -325,14 +347,14 @@ export function setupRoutes(
 
       res.json({
         success: true,
-        message: `Uploaded ${entitlements.length} entitlements for project ${projectId}`,
+        message: `Uploaded ${entitlements.length} entitlements for campaign ${projectId}`,
+        projectId,
+        campaignId: projectId,
+        replacedExisting: latestCampaign && !latestCampaign.publishedToChain,
         processing: processor.getResult(),
       });
     } catch (error) {
-      ErrorUtils.logError(
-        error as Error,
-        `upload entitlements for project ${req.params.projectId}`
-      );
+      ErrorUtils.logError(error as Error, `upload entitlements`);
       const statusCode =
         error instanceof ValidationError
           ? HTTP_STATUS.BAD_REQUEST
@@ -481,6 +503,37 @@ export function setupRoutes(
           error instanceof ValidationError
             ? error.message
             : errorResponse.error,
+        message: errorResponse.message,
+      });
+    }
+  });
+
+  // Toggle project published to chain status
+  app.post("/publish/:projectId", requireApiKey(), async (req, res) => {
+    try {
+      const { projectId } = req.params;
+
+      ValidationUtils.validateProjectId(projectId);
+
+      const updatedProject = await database.toggleProjectPublishedStatus(
+        projectId
+      );
+      res.json({
+        success: true,
+        projectId: updatedProject.id,
+        publishedToChain: updatedProject.publishedToChain,
+        updatedAt: updatedProject.updatedAt,
+      });
+    } catch (error) {
+      ErrorUtils.logError(
+        error as Error,
+        `toggle published status for project ${req.params.projectId}`
+      );
+      const errorResponse = ErrorUtils.toErrorResponse(error as Error);
+      const statusCode =
+        errorResponse.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        error: errorResponse.error,
         message: errorResponse.message,
       });
     }
