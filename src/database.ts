@@ -343,6 +343,9 @@ export class DatabaseService {
       where: {
         address: address.toLowerCase(),
         claimed: false,
+        project: {
+          publishedToChain: true,
+        },
       },
       orderBy: [{ createdAt: "desc" }, { projectId: "asc" }],
     });

@@ -182,9 +182,7 @@ export function setupRoutes(
       const enrichedProofs = await Promise.all(
         proofs.map(async (proof) => {
           try {
-            console.log("proof", proof);
             const proofData = await storage.retrieveJSON(proof.gcsPath);
-            console.log("proofData", proofData);
             return {
               projectId: proof.projectId,
               address: proof.address,
