@@ -394,19 +394,6 @@ export function setupRoutes(
     const { projectId } = req.params;
 
     try {
-      // First check if processor is currently active
-      const activeProcessor = activeProcessors.get(projectId);
-      if (activeProcessor) {
-        const result = activeProcessor.getResult();
-        const treeData = await storage.retrieveJSON(
-          `project-tree/${projectId}.json`
-        );
-        return res.json({
-          ...result,
-          treeData: treeData || null,
-        });
-      }
-
       // Get status from database
       const statusData = await database.getProjectStatus(projectId);
 
