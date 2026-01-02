@@ -14,23 +14,23 @@ export class ValidationUtils {
       throw new ValidationError("Address is required and must be a string");
     }
 
-    const trimmedAddress = address.trim().toLowerCase();
+    // const trimmedAddress = address.trim().toLowerCase();
 
-    // Check if it's a named account or implicit account
-    const isNamedAccount =
-      REGEX_PATTERNS.NEAR_ACCOUNT.test(trimmedAddress) ||
-      trimmedAddress.endsWith(".testnet") ||
-      (trimmedAddress.includes(".") && trimmedAddress.length > 2);
-    const isImplicitAccount = REGEX_PATTERNS.HEX_64_CHAR.test(trimmedAddress);
-    const isImplicitWithPrefix =
-      trimmedAddress.startsWith("0x") &&
-      REGEX_PATTERNS.HEX_64_CHAR.test(trimmedAddress.substring(2));
+    // // Check if it's a named account or implicit account
+    // const isNamedAccount =
+    //   REGEX_PATTERNS.NEAR_ACCOUNT.test(trimmedAddress) ||
+    //   trimmedAddress.endsWith(".testnet") ||
+    //   (trimmedAddress.includes(".") && trimmedAddress.length > 2);
+    // const isImplicitAccount = REGEX_PATTERNS.HEX_64_CHAR.test(trimmedAddress);
+    // const isImplicitWithPrefix =
+    //   trimmedAddress.startsWith("0x") &&
+    //   REGEX_PATTERNS.HEX_64_CHAR.test(trimmedAddress.substring(2));
 
-    if (!isNamedAccount && !isImplicitAccount && !isImplicitWithPrefix) {
-      throw new ValidationError(
-        `Invalid NEAR address format: ${address}. Must be a valid NEAR account ID or 64-character hex string`
-      );
-    }
+    // if (!isNamedAccount && !isImplicitAccount && !isImplicitWithPrefix) {
+    //   throw new ValidationError(
+    //     `Invalid NEAR address format: ${address}. Must be a valid NEAR account ID or 64-character hex string`
+    //   );
+    // }
   }
 
   /**
