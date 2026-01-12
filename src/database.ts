@@ -342,7 +342,6 @@ export class DatabaseService {
     return await this.prisma.proof.findMany({
       where: {
         address: address.toLowerCase(),
-        claimed: false,
         project: {
           publishedToChain: true,
         },
