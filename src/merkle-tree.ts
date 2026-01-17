@@ -226,23 +226,6 @@ export class NearMerkleTree {
     // Ensure account is properly formatted for NEAR
     let formattedAccount = account.toLowerCase();
 
-    // Check if it's a NEAR account (ends with .near, .testnet, etc.) or already a 64-char hex
-    const isNearAccount =
-      formattedAccount.includes(".") ||
-      formattedAccount.match(REGEX_PATTERNS.HEX_64_CHAR);
-
-    if (!isNearAccount) {
-      // If it's not a NEAR account ID and not a 64-char hex, assume it's an implicit account
-      if (formattedAccount.startsWith("0x")) {
-        formattedAccount = formattedAccount.substring(2);
-      }
-      // Pad to 64 chars if needed for implicit account
-      formattedAccount = formattedAccount.padStart(
-        FORMATS.NEAR_ACCOUNT_HEX_LENGTH,
-        "0"
-      );
-    }
-
     let formattedLockup = lockup.toLowerCase();
     const isLockupNearAccount =
       formattedLockup.includes(".") ||
