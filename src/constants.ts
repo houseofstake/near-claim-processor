@@ -22,7 +22,6 @@ export const TIMEOUTS = {
 
 export const FORMATS = {
   MERKLE_TREE_VERSION: 'near-v1',
-  NEAR_ACCOUNT_HEX_LENGTH: 64,
 } as const;
 
 export const HTTP_STATUS = {
@@ -39,9 +38,6 @@ export const DATABASE = {
 
 export const REGEX_PATTERNS = {
   AMOUNT_VALIDATION: /^\d+(\.\d*)?$/,
-  NEAR_ACCOUNT: /\.near$/,
-  HEX_64_CHAR: /^[a-f0-9]{64}$/,
-  HEX_HASH: /^0x[a-fA-F0-9]{64}$/,
 } as const;
 
 export const HTTP_LIMITS = {
