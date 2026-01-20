@@ -28,31 +28,6 @@ export class NearMerkleTree {
     return Buffer.from(bytes);
   }
 
-  private static stringToByteArray(str: string): number[] {
-    const hex = str.startsWith("0x") ? str.slice(2) : str;
-    if (/^[0-9a-fA-F]+$/.test(hex) && hex.length % 2 === 0) {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = Number.parseInt(hex.substring(i, i + 2), 16);
-      }
-      return Array.from(bytes);
-    }
-    const base64 = btoa(str);
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return Array.from(bytes);
-  }
-
-  private static formatProofAsByteArrays(proof: number[][]): string {
-    const formatted = proof.map(
-      (bytes) => `    [\n${bytes.map((n) => `      ${n}`).join(",\n")}\n    ]`
-    );
-    return `[\n${formatted.join(",\n")}\n  ]`;
-  }
-
   static async of(
     values: Array<MerkleTreeData>,
     leafEncoding: string[]
@@ -227,19 +202,6 @@ export class NearMerkleTree {
     let formattedAccount = account.toLowerCase();
 
     let formattedLockup = lockup.toLowerCase();
-    const isLockupNearAccount =
-      formattedLockup.includes(".") ||
-      formattedLockup.match(REGEX_PATTERNS.HEX_64_CHAR);
-
-    if (!isLockupNearAccount) {
-      if (formattedLockup.startsWith("0x")) {
-        formattedLockup = formattedLockup.substring(2);
-      }
-      formattedLockup = formattedLockup.padStart(
-        FORMATS.NEAR_ACCOUNT_HEX_LENGTH,
-        "0"
-      );
-    }
 
     // Convert amount to string representation
     let formattedAmount: string;
